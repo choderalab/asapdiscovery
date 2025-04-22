@@ -1,0 +1,74 @@
+name: simulation
+channels:
+  - openeye
+  - conda-forge
+dependencies:
+  # Base depends
+  - pip
+  - python >=3.10,<3.12
+  - pydantic >=2.0.0a0
+  - typing-extensions
+  - semver
+
+  # drugforge-alchemy
+  # drugforge-cli
+  # drugforge-data
+  # drugforge-docking
+  # drugforge-simulation
+  # drugforge-modeling
+  # drugforge-ml
+
+  # Command Line Tools & Scripting
+  - rich
+  - click
+  - pyyaml
+
+  # Testing
+  - pooch
+  - pytest
+  - pytest-cov
+  - pytest-xdist
+  - codecov
+  - pytest-console-scripts
+  - pytest-timeout
+  - requests-mock
+
+  # Molecule Manipulation
+  - biopython
+  - mdanalysis
+  - openeye-toolkits
+  - openff-forcefields >=2024.04.0
+  - openff-toolkit
+  - openfe
+  - openmm
+  - openmmtools
+  - openmmforcefields >= 0.13.0
+  - mdtraj
+  - cudatoolkit
+  - gufe >=1.0.0
+  - pymol-open-source
+  - rdkit
+  - plip
+
+  # Math
+  - numpy
+  - pandas
+  - sigfig
+  - matplotlib
+  - seaborn
+
+  # Execution
+  - netifaces
+  - dask
+  - dask-jobqueue
+  - dask-cuda
+  - distributed
+
+  # Services
+  - requests
+  - moto
+  - boto3
+  - multimethod
+
+  # ML
+  - mtenn >=0.6.3
