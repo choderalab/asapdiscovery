@@ -25,11 +25,11 @@ dependencies:
   - openff-toolkit
   - openff-forcefields >=2024.04.0
   - openeye-toolkits # may need  <2023.2.3 for lilac GLIBC
-  - openff-bespokefit >=0.4.0
   - openmmforcefields >= 0.13.0
   - pandas
   - pebble
   - pydantic >=2.0.0a0
+  - pydantic-settings
   - rdkit
   - seaborn
   - pebble
