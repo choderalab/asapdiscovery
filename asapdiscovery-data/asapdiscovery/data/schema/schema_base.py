@@ -4,7 +4,7 @@ import json
 from enum import Enum
 from pathlib import Path
 
-from pydantic.v1 import BaseModel, ByteSize
+from pydantic import BaseModel, ByteSize
 
 _SCHEMA_VERSION = "0.1.0"
 
@@ -88,10 +88,7 @@ class DataModelAbstractBase(BaseModel):
     def __ne__(self, other: DataModelAbstractBase) -> bool:
         return not self.__eq__(other)
 
-    class Config:
-        validate_assignment = True
-        # can't use extra="forbid" because of the way we use
-        # kwargs to skip root_validator on some fields
+    model_config = {"validate_assignment": True}
 
 
 def schema_dict_get_val_overload(obj: dict | BaseModel):

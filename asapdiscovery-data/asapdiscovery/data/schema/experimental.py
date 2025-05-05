@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Any
 
-from pydantic.v1 import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ExperimentalCompoundData(BaseModel):
@@ -42,6 +42,16 @@ class ExperimentalCompoundData(BaseModel):
         description='Experimental data fields, including "pIC50" and uncertainty (either "pIC50_stderr" or  "pIC50_{lower|upper}"',
     )
 
+    @field_validator("date_created", mode="before")
+    def check_date(cls, value):
+        # If a date is specified as just the year, it'll be loaded as an int and we need
+        #  to format it into ISO format. Set for last day of the year so it gets sorted
+        #  at the end
+        if isinstance(value, int):
+            value = f"{value}-12-31"
+
+        return value
+
     def to_SD_tags(self) -> tuple[dict[str, str], dict[str, float]]:
         """
         Convert to a dictionary of SD tags
@@ -53,6 +63,4 @@ class ExperimentalCompoundData(BaseModel):
         exp_data = {str(k): float(v) for k, v in exp_data.items() if v is not None}
         return data, exp_data
 
-    class Config:
-        allow_mutation = False
-        extra = "forbid"
+    model_config = {"frozen": True, "extra": "forbid"}

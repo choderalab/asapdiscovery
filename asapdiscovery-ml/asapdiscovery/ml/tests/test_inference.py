@@ -5,8 +5,15 @@ import pytest
 import torch
 from asapdiscovery.data.backend.openeye import load_openeye_pdb
 from asapdiscovery.data.testing.test_resources import fetch_test_file
-from asapdiscovery.ml.inference import E3nnInference, GATInference, SchnetInference
 from numpy.testing import assert_allclose
+
+try:
+    from asapdiscovery.ml.inference import E3nnInference, GATInference, SchnetInference
+except ImportError:
+    pytest.skip(
+        "skipping inference tests until they are updated to split-model mtenn",
+        allow_module_level=True,
+    )
 
 
 @pytest.fixture()

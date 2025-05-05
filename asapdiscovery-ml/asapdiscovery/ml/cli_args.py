@@ -5,10 +5,11 @@ import torch
 from asapdiscovery.data.util.utils import MOONSHOT_CDD_ID_REGEX, MPRO_ID_REGEX
 from asapdiscovery.ml.config import (
     DatasetSplitterType,
+    DatasetType,
     EarlyStoppingType,
     OptimizerType,
 )
-from mtenn.config import CombinationConfig, ReadoutConfig, StrategyConfig
+from mtenn.config import CombinationConfig, ModelType, ReadoutConfig, StrategyConfig
 
 
 ################################################################################
@@ -292,6 +293,66 @@ def model_config_cache(func):
     )(func)
 
 
+def representation_config_cache_args(func):
+    for fn in [
+        representation_config_cache,
+        complex_representation_config_cache,
+        ligand_representation_config_cache,
+        protein_representation_config_cache,
+    ]:
+        func = fn(func)
+
+    return func
+
+
+def representation_config_cache(func):
+    return click.option(
+        "--representation-config-cache",
+        type=click.Path(exists=False, file_okay=True, dir_okay=False, path_type=Path),
+        help=(
+            "Config JSON cache file for a single representation. Other "
+            "representation-related args that are passed will supersede anything "
+            "stored in this file."
+        ),
+    )(func)
+
+
+def complex_representation_config_cache(func):
+    return click.option(
+        "--complex_representation-config-cache",
+        type=click.Path(exists=False, file_okay=True, dir_okay=False, path_type=Path),
+        help=(
+            "Config JSON cache file for the representation to be used for the complex "
+            "in a SplitModel. Other representation-related args that are passed will "
+            "supersede anything stored in this file."
+        ),
+    )(func)
+
+
+def ligand_representation_config_cache(func):
+    return click.option(
+        "--ligand_representation-config-cache",
+        type=click.Path(exists=False, file_okay=True, dir_okay=False, path_type=Path),
+        help=(
+            "Config JSON cache file for the representation to be used for the ligand "
+            "in a SplitModel. Other representation-related args that are passed will "
+            "supersede anything stored in this file."
+        ),
+    )(func)
+
+
+def protein_representation_config_cache(func):
+    return click.option(
+        "--protein_representation-config-cache",
+        type=click.Path(exists=False, file_okay=True, dir_okay=False, path_type=Path),
+        help=(
+            "Config JSON cache file for the representation to be used for the protein "
+            "in a SplitModel. Other representation-related args that are passed will "
+            "supersede anything stored in this file."
+        ),
+    )(func)
+
+
 def model_rand_seed(func):
     return click.option(
         "--model-rand-seed", type=int, help="Random seed for initializing the model."
@@ -355,7 +416,11 @@ def extra_config(func):
 # MTENN args
 def mtenn_args(func):
     for fn in [
-        grouped,
+        model_type,
+        representation,
+        complex_representation,
+        ligand_representation,
+        protein_representation,
         strategy,
         strategy_layer_norm,
         pred_readout,
@@ -373,11 +438,62 @@ def mtenn_args(func):
     return func
 
 
-def grouped(func):
+def model_type(func):
     return click.option(
-        "--grouped",
-        type=bool,
-        help="Model is a grouped (multi-pose) model.",
+        "--model-type",
+        type=ModelType,
+        help=(
+            "What type of model to use. "
+            f"Options are [{', '.join(ModelType.get_values())}]."
+        ),
+    )(func)
+
+
+def representation(func):
+    return click.option(
+        "--representation",
+        type=str,
+        help=(
+            "Single Representation to use. Should be specified as a comma separated "
+            "list of <key>:<value> pairs, which will be passed directly to the "
+            "appropriate class constructor."
+        ),
+    )(func)
+
+
+def complex_representation(func):
+    return click.option(
+        "--complex-representation",
+        type=str,
+        help=(
+            "Representation to use for the complex in a SplitModel. Should be "
+            "specified as a comma separated list of <key>:<value> pairs, which will be "
+            "passed directly to the appropriate class constructor."
+        ),
+    )(func)
+
+
+def ligand_representation(func):
+    return click.option(
+        "--ligand-representation",
+        type=str,
+        help=(
+            "Representation to use for the ligand in a SplitModel. Should be "
+            "specified as a comma separated list of <key>:<value> pairs, which will be "
+            "passed directly to the appropriate class constructor."
+        ),
+    )(func)
+
+
+def protein_representation(func):
+    return click.option(
+        "--protein-representation",
+        type=str,
+        help=(
+            "Representation to use for the protein in a SplitModel. Should be "
+            "specified as a comma separated list of <key>:<value> pairs, which will be "
+            "passed directly to the appropriate class constructor."
+        ),
     )(func)
 
 
@@ -1049,8 +1165,23 @@ def es_config_cache(func):
 
 ################################################################################
 # Dataset args
+def general_ds_args(func):
+    for fn in [
+        ds_type,
+        export_input_data,
+        export_exp_data,
+        grouped_ds,
+        e3nn_ds,
+        ds_cache,
+        ds_config_cache,
+    ]:
+        func = fn(func)
+
+    return func
+
+
 def graph_ds_args(func):
-    for fn in [exp_file, ds_cache, ds_config_cache]:
+    for fn in [exp_file]:
         func = fn(func)
 
     return func
@@ -1117,6 +1248,45 @@ def ds_config_cache(func):
             "DatasetConfig JSON cache file. If this is given, no other dataset-related "
             "args will be parsed."
         ),
+    )(func)
+
+
+def ds_type(func):
+    return click.option(
+        "--dataset-type",
+        type=DatasetType,
+        help=(
+            "Which type of dataset to build. "
+            f"Options are [{', '.join(DatasetType.get_values())}]."
+        ),
+    )(func)
+
+
+def grouped_ds(func):
+    return click.option(
+        "--grouped-dataset", type=bool, help="Building a multi-pose dataset."
+    )(func)
+
+
+def e3nn_ds(func):
+    return click.option(
+        "--e3nn-dataset", type=bool, help="Building a dataset for use with e3nn model."
+    )(func)
+
+
+def export_input_data(func):
+    return click.option(
+        "--export-input-data",
+        type=bool,
+        help="Export the input_data field in the DatasetConfig.",
+    )(func)
+
+
+def export_exp_data(func):
+    return click.option(
+        "--export-exp-data",
+        type=bool,
+        help="Export the exp_data field in the DatasetConfig.",
     )(func)
 
 
@@ -1442,7 +1612,10 @@ def kvp_list_to_dict(kvp_list_str):
         Python dict built from the input string
     """
 
-    return {kvp.split(":")[0]: kvp.split(":")[1] for kvp in kvp_list_str.split(",")}
+    return {
+        kvp.split(":")[0]: ":".join(kvp.split(":")[1:])
+        for kvp in kvp_list_str.split(",")
+    }
 
 
 ################################################################################

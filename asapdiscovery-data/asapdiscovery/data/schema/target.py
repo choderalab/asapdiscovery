@@ -20,7 +20,7 @@ from asapdiscovery.modeling.modeling import (  # TODO: move to backend
     split_openeye_mol,
 )
 from asapdiscovery.modeling.schema import MoleculeFilter  # TODO: move to backend
-from pydantic.v1 import Field, root_validator
+from pydantic import Field, model_validator
 
 from .schema_base import (
     DataModelAbstractBase,
@@ -33,7 +33,8 @@ from .schema_base import (
 logger = logging.getLogger(__name__)
 
 
-class InvalidTargetError(ValueError): ...  # noqa: E701
+class InvalidTargetError(ValueError):
+    ...  # noqa: E701
 
 
 class Target(DataModelAbstractBase):
@@ -59,7 +60,7 @@ class Target(DataModelAbstractBase):
         allow_mutation=False,
     )
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
     @classmethod
     def _validate_at_least_one_id(cls, v):
         # check if skip validation
@@ -170,7 +171,7 @@ class PreppedTarget(DataModelAbstractBase):
         description="bounding box of the target, lost in oedu conversion so can be saved as attribute.",
     )
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
     @classmethod
     def _validate_at_least_one_id(cls, v):
         # simpler as we never need to pop attrs off the serialised representation.
