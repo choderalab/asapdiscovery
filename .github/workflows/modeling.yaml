@@ -31,7 +31,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
+        os: [ubuntu-latest, macos-latest]
         python-version: ["3.11"]
 
     env:
@@ -55,12 +55,9 @@ jobs:
     - name: Setup Conda Environment
       uses: mamba-org/setup-micromamba@v1
       with:
-        # default - will pull down 2.0 which we don't want!
-        # micromamba-version: latest
-        # pin to latest 1.x release
-        micromamba-version: '1.5.10-0'
-        environment-file: devtools/conda-envs/asapdiscovery-${{ matrix.os }}.yml
-        environment-name: asapdiscovery
+        micromamba-version: latest
+        environment-file: devtools/conda-envs/${{ matrix.os }}/modeling.yaml
+        environment-name: modeling
         cache-environment: true
         cache-downloads: true
         cache-environment-key: environment-${{ steps.date.outputs.date }}
@@ -68,24 +65,19 @@ jobs:
         create-args: >-
           python==${{ matrix.python-version }}
 
+    - name: Install packages
+      run: |
+        micromamba install -n modeling --file devtools/conda-envs/${{ matrix.os }}/data.yaml
+        python -m pip install -e ./asapdiscovery-data --no-deps
+        python -m pip install -e ./asapdiscovery-modeling --no-deps
+        micromamba list
+
     - name: Test OE License & Write License to File
       env:
         OE_LICENSE_TEXT: ${{ secrets.OE_LICENSE }}
       run: |
         echo "${OE_LICENSE_TEXT}" > ${OE_LICENSE}
         python -c "import openeye; assert openeye.oechem.OEChemIsLicensed(), 'OpenEye license checks failed!'"
-
-    - name: Install packages
-      run: |
-        python -m pip install -e ./asapdiscovery-cli --no-deps
-        python -m pip install -e ./asapdiscovery-data --no-deps
-        python -m pip install -e ./asapdiscovery-dataviz --no-deps
-        python -m pip install -e ./asapdiscovery-docking --no-deps
-        python -m pip install -e ./asapdiscovery-ml --no-deps
-        python -m pip install -e ./asapdiscovery-modeling --no-deps
-        python -m pip install -e ./asapdiscovery-simulation --no-deps
-        python -m pip install -e ./asapdiscovery-spectrum --no-deps
-        micromamba list
 
     - name: Run tests
       env:
