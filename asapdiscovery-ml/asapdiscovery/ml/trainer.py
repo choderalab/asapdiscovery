@@ -22,22 +22,22 @@ from asapdiscovery.ml.config import (
 from asapdiscovery.ml.dataset import dataset_to_csv
 from asapdiscovery.ml.schema import TrainingPredictionTracker
 from mtenn.config import (
-    E3NNModelConfig,
-    GATModelConfig,
+    GroupedModelConfig,
+    LigandOnlyModelConfig,
+    ModelConfig,
     ModelConfigBase,
     ModelType,
-    SchNetModelConfig,
-    ViSNetModelConfig,
+    SplitModelConfig,
 )
-from pydantic.v1 import (
+from pydantic import (
+    field_serializer,
+    field_validator,
+    model_validator,
     BaseModel,
-    Extra,
     Field,
     ValidationError,
     confloat,
     conlist,
-    root_validator,
-    validator,
 )
 
 
@@ -50,7 +50,7 @@ class Trainer(BaseModel):
     optimizer_config: OptimizerConfig = Field(
         ..., description="Config describing the optimizer to use in training."
     )
-    model_config: ModelConfigBase = Field(
+    mtenn_model_config: ModelConfigBase = Field(
         ..., description="Config describing the model to train."
     )
     es_config: EarlyStoppingConfig = Field(
@@ -66,7 +66,7 @@ class Trainer(BaseModel):
             "test splits."
         ),
     )
-    loss_configs: conlist(item_type=LossFunctionConfig, min_items=1) = Field(
+    loss_configs: conlist(item_type=LossFunctionConfig, min_length=1) = Field(
         ...,
         description="Config describing the loss function for training.",
     )
@@ -77,6 +77,7 @@ class Trainer(BaseModel):
             "If no values are passed, each loss function will be weighted equally. If "
             "any values are passed, there must be one for each loss function."
         ),
+        validate_default=True,
     )
     eval_loss_weights: torch.Tensor = Field(
         [],
@@ -86,6 +87,7 @@ class Trainer(BaseModel):
             "weights from loss_weights will be used. If any values are passed, there "
             "must be one for each loss function."
         ),
+        validate_default=True,
     )
     weight_decay: confloat(ge=0.0, allow_inf_nan=False) = Field(
         0.0,
@@ -141,6 +143,7 @@ class Trainer(BaseModel):
             "TrainingPredictionTracker to keep track of predictions and losses over "
             "training."
         ),
+        validate_default=True,
     )
     device: torch.device = Field("cpu", description="Device to train on.")
 
@@ -188,36 +191,45 @@ class Trainer(BaseModel):
     # Tracker to make sure the optimizer and ML model are built before trying to train
     _is_initialized = False
 
-    class Config:
-        # Temporary fix for now. This is necessary for the asapdiscovery Dataset
-        #  classes, but we should probably figure out a workaround eventurally. Probably
-        #  best to implement __get_validators__ for the Dataset classes.
-        arbitrary_types_allowed = True
+    # Fields for the actual built python objects, only defined so we can exclude them
+    #  from serialization
+    model: None = Field(None, description="Actual model object.", exclude=True)
+    optimizer: None = Field(None, description="Actual optimizer object.", exclude=True)
+    es: None = Field(None, description="Actual EarlyStopping object.", exclude=True)
+    ds: None = Field(None, description="Actual Dataset object.", exclude=True)
+    ds_train: None = Field(
+        None, description="Actual train set Dataset object.", exclude=True
+    )
+    ds_val: None = Field(
+        None, description="Actual val set Dataset object.", exclude=True
+    )
+    ds_test: None = Field(
+        None, description="Actual test set Dataset object.", exclude=True
+    )
+    loss_funcs: None = Field(
+        None, description="Actual loss function objects.", exclude=True
+    )
 
-        # Exclude everything that was built (should be able to fully reconstruct from
-        #  the configs)
-        fields = {
-            "model": {"exclude": True},
-            "optimizer": {"exclude": True},
-            "es": {"exclude": True},
-            "ds": {"exclude": True},
-            "ds_train": {"exclude": True},
-            "ds_val": {"exclude": True},
-            "ds_test": {"exclude": True},
-            "loss_funcs": {"exclude": True},
-        }
+    model_config = {"arbitrary_types_allowed": True, "extra": "allow"}
 
-        # Allow things to be added to the object after initialization/validation
-        extra = Extra.allow
+    @field_serializer("device", when_used="json")
+    def serialize_torch_device(self, device: torch.device):
+        return str(device)
 
-        # Custom encoder to cast device to str before trying to serialize
-        json_encoders = {
-            torch.device: lambda d: str(d),
-            torch.Tensor: lambda t: t.tolist(),
-        }
+    @field_serializer("loss_weights", "eval_loss_weights", when_used="json")
+    def serialize_torch_tensor(self, tensor: torch.Tensor):
+        try:
+            return tensor.tolist()
+        except AttributeError:
+            # Just have lists not Tensors
+            return tensor
+
+    @field_serializer("ds_config", when_used="json")
+    def use_ds_config_serializer(self, ds_config: DatasetConfig):
+        return ds_config.model_dump()
 
     # Validator to make sure that if output_dir exists, it is a directory
-    @validator("output_dir")
+    @field_validator("output_dir")
     def output_dir_check(cls, p):
         if p.exists():
             assert (
@@ -226,14 +238,14 @@ class Trainer(BaseModel):
 
         return p
 
-    @validator(
+    @field_validator(
         "optimizer_config",
-        "model_config",
+        "mtenn_model_config",
         "es_config",
         "ds_splitter_config",
-        pre=True,
+        mode="before",
     )
-    def load_cache_files(cls, config_kwargs, field):
+    def load_cache_files(cls, config_kwargs, info):
         """
         This validator will load an existing cache file, and update the config with any
         explicitly passed kwargs. If passed, the cache file must be an entry in config
@@ -241,7 +253,12 @@ class Trainer(BaseModel):
         "overwrite_cache" in config, which, if given and True, will overwrite the given
         cache file.
         """
-        config_cls = field.type_
+        config_cls = cls.model_fields[info.field_name].annotation
+        try:
+            config_cls = config_cls._evaluate(globals(), locals(), frozenset())
+            config_cls = config_cls.__args__[0]
+        except AttributeError:
+            pass
 
         # If an instance of the actual config class is passed, there's no cache file so
         #  just return
@@ -253,18 +270,18 @@ class Trainer(BaseModel):
         if config_kwargs is None:
             return config_kwargs
 
-        # Special case to handle model_config since the Field annotation is an abstract
-        #  class
-        if config_cls is ModelConfigBase:
+        # Special case to handle mtenn_model_config since the Field annotation is an
+        #  abstract class
+        if info.field_name == "mtenn_model_config":
             match config_kwargs["model_type"]:
-                case ModelType.GAT:
-                    config_cls = GATModelConfig
-                case ModelType.schnet:
-                    config_cls = SchNetModelConfig
-                case ModelType.e3nn:
-                    config_cls = E3NNModelConfig
-                case ModelType.visnet:
-                    config_cls = ViSNetModelConfig
+                case ModelType.model:
+                    config_cls = ModelConfig
+                case ModelType.grouped:
+                    config_cls = GroupedModelConfig
+                case ModelType.ligand:
+                    config_cls = LigandOnlyModelConfig
+                case ModelType.split:
+                    config_cls = SplitModelConfig
                 case other:
                     raise ValueError(
                         f"Can't instantiate model config for type {other}."
@@ -275,6 +292,7 @@ class Trainer(BaseModel):
         config_file = config_kwargs.pop("cache", None)
         overwrite = config_kwargs.pop("overwrite_cache", False)
 
+        ## still need to figure out how to get config_cls
         return Trainer._build_arbitrary_config(
             config_cls=config_cls,
             config_file=config_file,
@@ -282,13 +300,21 @@ class Trainer(BaseModel):
             **config_kwargs,
         )
 
-    @validator("data_aug_configs", "loss_configs", pre=True)
-    def load_cache_files_lists(cls, kwargs_list, field):
+    @field_validator("data_aug_configs", "loss_configs", mode="before")
+    def load_cache_files_lists(cls, kwargs_list, info):
         """
         This validator performs the same functionality as the above function, but for
         Fields that contain a list of some type.
         """
-        config_cls = field.type_
+        config_cls = cls.model_fields[info.field_name].annotation
+        try:
+            config_cls = config_cls._evaluate(globals(), locals(), frozenset())
+        except AttributeError:
+            pass
+        try:
+            config_cls = config_cls.__args__[0]
+        except AttributeError:
+            pass
 
         if isinstance(kwargs_list, dict):
             # This will occur in the even of a Sweep, in which case the values will be
@@ -334,7 +360,7 @@ class Trainer(BaseModel):
 
         return configs
 
-    @validator("ds_config", pre=True)
+    @field_validator("ds_config", mode="before")
     def check_and_build_ds(cls, config_kwargs):
         """
         This validator will first check that the appropriate files exist, and then parse
@@ -370,6 +396,8 @@ class Trainer(BaseModel):
         xtal_regex = config_kwargs.pop("xtal_regex", None)
         cpd_regex = config_kwargs.pop("cpd_regex", None)
 
+        if ds_config_cache and (not ds_config_cache.exists()):
+            print(f"ds_config_cache {ds_config_cache} not found", flush=True)
         if ds_config_cache and ds_config_cache.exists() and (not overwrite):
             print("loading from cache", flush=True)
             return DatasetConfig(**json.loads(ds_config_cache.read_text()))
@@ -417,7 +445,7 @@ class Trainer(BaseModel):
             ds_config = DatasetConfig.from_exp_file(exp_file, **config_kwargs)
 
         if ds_config_cache:
-            ds_config_cache.write_text(ds_config.json())
+            ds_config_cache.write_text(ds_config.model_dump_json())
 
         return ds_config
 
@@ -481,11 +509,11 @@ class Trainer(BaseModel):
 
         # If a non-existent file was passed, store the Config
         if config_file and ((not config_file.exists()) or overwrite):
-            config_file.write_text(config.json())
+            config_file.write_text(config.model_dump_json())
 
         return config
 
-    @validator("device", pre=True)
+    @field_validator("device", mode="before")
     def fix_device(cls, v):
         """
         The torch device gets serialized as a string and the Trainer class doesn't
@@ -493,7 +521,7 @@ class Trainer(BaseModel):
         """
         return torch.device(v)
 
-    @validator("extra_config", pre=True)
+    @field_validator("extra_config", mode="before")
     def parse_extra_config(cls, v):
         """
         This is for compatibility with the CLI, in which these config args will be
@@ -515,21 +543,21 @@ class Trainer(BaseModel):
 
         return extra_config
 
-    @validator("loss_weights", pre=True, always=True)
-    def check_loss_weights(cls, v, values):
+    @field_validator("loss_weights", mode="before")
+    def check_loss_weights(cls, v, info):
         """
         Make sure that we have the right number of loss function weights, and cast to
         normalized tensor.
         """
-        if (len(v) > 0) and (len(v) != len(values["loss_configs"])):
+        if (len(v) > 0) and (len(v) != len(info.data["loss_configs"])):
             raise ValueError(
                 f"Mismatch between number of loss function weights ({len(v)}) and "
-                f"number of loss functions ({len(values['loss_configs'])})."
+                f"number of loss functions ({len(info.data['loss_configs'])})."
             )
 
         # Fill with 1s if no values passed
         if len(v) == 0:
-            v = [1] * len(values["loss_configs"])
+            v = [1] * len(info.data["loss_configs"])
         elif isinstance(v, dict):
             # This will occur in the even of a Sweep, in which case the values will be
             #  a dict mapping index in the list to a value
@@ -550,21 +578,21 @@ class Trainer(BaseModel):
 
         return v
 
-    @validator("eval_loss_weights", pre=True, always=True)
-    def check_eval_loss_weights(cls, v, values):
+    @field_validator("eval_loss_weights", mode="before")
+    def check_eval_loss_weights(cls, v, info):
         """
         Make sure that we have the right number of loss function weights, and cast to
         normalized tensor.
         """
-        if (len(v) > 0) and (len(v) != len(values["loss_configs"])):
+        if (len(v) > 0) and (len(v) != len(info.data["loss_configs"])):
             raise ValueError(
                 f"Mismatch between number of loss function weights ({len(v)}) and "
-                f"number of loss functions ({len(values['loss_configs'])})."
+                f"number of loss functions ({len(info.data['loss_configs'])})."
             )
 
         # Fill with 1s if no values passed
         if len(v) == 0:
-            return values["loss_weights"]
+            return info.data["loss_weights"]
         elif isinstance(v, dict):
             # This will occur in the even of a Sweep, in which case the values will be
             #  a dict mapping index in the list to a value
@@ -585,7 +613,7 @@ class Trainer(BaseModel):
 
         return v
 
-    @validator("pred_tracker", always=True)
+    @field_validator("pred_tracker", mode="before")
     def init_pred_tracker(cls, pred_tracker):
         # If a value was passed, it's already been validated so just return that
         if isinstance(pred_tracker, TrainingPredictionTracker):
@@ -594,7 +622,7 @@ class Trainer(BaseModel):
             # Otherwise need to init an empty one
             return TrainingPredictionTracker()
 
-    @validator("save_weights")
+    @field_validator("save_weights")
     def check_save_weights(cls, v):
         """
         Just make sure the option is one of the valid ones.
@@ -606,18 +634,18 @@ class Trainer(BaseModel):
 
         return v
 
-    @root_validator
-    def check_s3_settings(cls, values):
+    @model_validator(mode="after")
+    def check_s3_settings(self):
         """
         check that if we uploading to S3 that the S3 path is set
         """
-        upload_to_s3 = values.get("upload_to_s3")
-        s3_path = values.get("s3_path")
+        upload_to_s3 = self.upload_to_s3
+        s3_path = self.s3_path
         if upload_to_s3 and not s3_path:
             raise ValueError("Must provide an S3 path if uploading to S3.")
-        return values
+        return self
 
-    @validator("s3_path", pre=True)
+    @field_validator("s3_path", mode="before")
     def check_s3_path(cls, v):
         # check it is a folder path not a file path, cast to Path
         if v:
@@ -638,9 +666,13 @@ class Trainer(BaseModel):
         run_id_fn = self.output_dir / "run_id"
 
         # Don't serialize input_data for confidentiality/size reasons
-        ds_config = self.ds_config.dict()
-        del ds_config["input_data"]
-        config = self.dict()
+        ds_config = self.ds_config.model_dump()
+        try:
+            del ds_config["input_data"]
+        except KeyError:
+            # Don't need to do anything since it's already not there
+            pass
+        config = self.model_dump()
         config["ds_config"] = ds_config
 
         if self.cont:
@@ -757,7 +789,7 @@ class Trainer(BaseModel):
                 # First build a dict mapping compound_id: idx in ds
                 compound_idx_dict = {}
                 for i, (compound, _) in enumerate(self.ds):
-                    if self.model_config.grouped:
+                    if self.mtenn_model_config.grouped:
                         compound_id = compound
                     else:
                         compound_id = compound[1]
@@ -792,7 +824,7 @@ class Trainer(BaseModel):
                 if not weights_path.exists():
                     weights_path = self.output_dir / "weights.th"
                 print(f"Using weights file {weights_path.name}", flush=True)
-                self.model_config = self.model_config.update(
+                self.mtenn_model_config = self.mtenn_model_config.update(
                     {
                         "model_weights": torch.load(
                             weights_path, map_location=self.device
@@ -821,7 +853,7 @@ class Trainer(BaseModel):
             dataset_to_csv(self.ds_test, self.output_dir / "ds_test.csv")
 
         # Build the Model
-        self.model = self.model_config.build().to(self.device)
+        self.model = self.mtenn_model_config.build().to(self.device)
 
         # Build the Optimizer
         self.optimizer = self.optimizer_config.build(self.model.parameters())
@@ -937,27 +969,34 @@ class Trainer(BaseModel):
                     else None
                 )
 
-                # Get input poses for GroupedModel
-                if self.model_config.grouped:
-                    model_inp = []
-                    for single_pose in pose["poses"]:
+                if self.mtenn_model_config.model_type == ModelType.split:
+                    # Data augmentation not yet implemented for split models
+                    # Make prediction and calculate loss
+                    pred, pose_preds = self.model(
+                        comp=pose["complex"], prot=pose["protein"], lig=pose["ligand"]
+                    )
+                else:
+                    # Get input poses for GroupedModel
+                    if self.mtenn_model_config.grouped:
+                        model_inp = []
+                        for single_pose in pose["poses"]:
+                            # Apply all data augmentations
+                            aug_pose = deepcopy(single_pose)
+                            for aug in self.data_augs:
+                                aug_pose = aug(aug_pose)
+
+                            model_inp.append(aug_pose)
+
+                    else:
                         # Apply all data augmentations
-                        aug_pose = deepcopy(single_pose)
+                        aug_pose = deepcopy(pose)
                         for aug in self.data_augs:
                             aug_pose = aug(aug_pose)
 
-                        model_inp.append(aug_pose)
+                        model_inp = aug_pose
 
-                else:
-                    # Apply all data augmentations
-                    aug_pose = deepcopy(pose)
-                    for aug in self.data_augs:
-                        aug_pose = aug(aug_pose)
-
-                    model_inp = aug_pose
-
-                # Make prediction and calculate loss
-                pred, pose_preds = self.model(model_inp)
+                    # Make prediction and calculate loss
+                    pred, pose_preds = self.model(model_inp)
 
                 losses = [
                     (
@@ -1116,15 +1155,25 @@ class Trainer(BaseModel):
                     else None
                 )
 
-                # Get input poses for GroupedModel
-                if self.model_config.grouped:
-                    model_inp = pose["poses"]
+                if self.mtenn_model_config.model_type == ModelType.split:
+                    # Make prediction and calculate loss
+                    with torch.no_grad():
+                        pred, pose_preds = self.model(
+                            comp=pose["complex"],
+                            prot=pose["protein"],
+                            lig=pose["ligand"],
+                        )
                 else:
-                    model_inp = pose
+                    # Get input poses for GroupedModel
+                    if self.mtenn_model_config.grouped:
+                        model_inp = pose["poses"]
+                    else:
+                        model_inp = pose
 
-                # Make prediction and calculate loss
-                with torch.no_grad():
-                    pred, pose_preds = self.model(model_inp)
+                    # Make prediction and calculate loss
+                    with torch.no_grad():
+                        pred, pose_preds = self.model(model_inp)
+
                 losses = [
                     (
                         loss_func(
@@ -1208,15 +1257,25 @@ class Trainer(BaseModel):
                     else None
                 )
 
-                # Get input poses for GroupedModel
-                if self.model_config.grouped:
-                    model_inp = pose["poses"]
+                if self.mtenn_model_config.model_type == ModelType.split:
+                    # Make prediction and calculate loss
+                    with torch.no_grad():
+                        pred, pose_preds = self.model(
+                            comp=pose["complex"],
+                            prot=pose["protein"],
+                            lig=pose["ligand"],
+                        )
                 else:
-                    model_inp = pose
+                    # Get input poses for GroupedModel
+                    if self.mtenn_model_config.grouped:
+                        model_inp = pose["poses"]
+                    else:
+                        model_inp = pose
 
-                # Make prediction and calculate loss
-                with torch.no_grad():
-                    pred, pose_preds = self.model(model_inp)
+                    # Make prediction and calculate loss
+                    with torch.no_grad():
+                        pred, pose_preds = self.model(model_inp)
+
                 losses = [
                     (
                         loss_func(
@@ -1284,7 +1343,9 @@ class Trainer(BaseModel):
                 torch.save(
                     self.optimizer.state_dict(), self.output_dir / "optimizer.th"
                 )
-            (self.output_dir / "pred_tracker.json").write_text(self.pred_tracker.json())
+            (self.output_dir / "pred_tracker.json").write_text(
+                self.pred_tracker.model_dump_json()
+            )
 
             # Stop if loss has gone to infinity or is NaN
             if (
@@ -1362,7 +1423,7 @@ class Trainer(BaseModel):
 
         if use_epoch is not None:
             (self.output_dir / "pred_tracker_full.json").write_text(
-                self.pred_tracker.json()
+                self.pred_tracker.model_dump_json()
             )
             # Trim the pred_tracker
             for _, tp in self.pred_tracker:
@@ -1372,11 +1433,13 @@ class Trainer(BaseModel):
 
         final_model_path = self.output_dir / "final.th"
         torch.save(self.model.state_dict(), final_model_path)
-        (self.output_dir / "pred_tracker.json").write_text(self.pred_tracker.json())
+        (self.output_dir / "pred_tracker.json").write_text(
+            self.pred_tracker.model_dump_json()
+        )
 
         # write to json
         model_config_path = self.output_dir / "model_config.json"
-        model_config_path.write_text(self.model_config.json())
+        model_config_path.write_text(self.mtenn_model_config.model_dump_json())
 
         # copy over the final to tagged model if present
         import shutil

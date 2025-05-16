@@ -7,6 +7,7 @@ on:
   pull_request:
     branches:
       - "main"
+      - "pydantic_2"
   schedule:
     # Nightly tests run on main by default:
     #   Scheduled workflows run on the latest commit on the default or base branch.
@@ -63,7 +64,7 @@ jobs:
         # micromamba-version: latest
         # pin to latest 1.x release
         micromamba-version: '1.5.10-0'
-        environment-file: devtools/conda-envs/asapdiscovery-${{ matrix.os }}.yml
+        environment-file: devtools/conda-envs/${{ matrix.os }}/docking.yaml
         environment-name: asapdiscovery
         cache-environment: true
         cache-downloads: true
@@ -81,13 +82,11 @@ jobs:
 
     - name: Install packages
       run: |
-        python -m pip install -e ./asapdiscovery-cli --no-deps
         python -m pip install -e ./asapdiscovery-data --no-deps
         python -m pip install -e ./asapdiscovery-dataviz --no-deps
         python -m pip install -e ./asapdiscovery-docking --no-deps
         python -m pip install -e ./asapdiscovery-ml --no-deps
         python -m pip install -e ./asapdiscovery-modeling --no-deps
-        python -m pip install -e ./asapdiscovery-simulation --no-deps
         python -m pip install -e ./asapdiscovery-spectrum --no-deps
         micromamba list
 

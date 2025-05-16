@@ -1,3 +1,4 @@
+from datetime import datetime
 import json
 import multiprocessing as mp
 from functools import partial
@@ -8,7 +9,8 @@ import numpy as np
 import pandas
 import torch
 from asapdiscovery.ml.config import LossFunctionConfig
-from pydantic.v1 import BaseModel, Extra, Field, validator
+from pydantic import BaseModel, Field, field_validator
+import pydantic
 from scipy.stats import bootstrap, kendalltau, spearmanr
 
 
@@ -23,17 +25,15 @@ class TrainingPrediction(BaseModel):
 
     # Target info
     target_prop: str = Field(..., description="Target property being predicted.")
-    target_val: float | torch.Tensor = Field(
-        ..., description="Target value to predict."
-    )
-    in_range: int = Field(
+    target_val: float = Field(..., description="Target value to predict.")
+    in_range: int | None = Field(
         None,
         description=(
             "Whether target is below (-1), within (0), or above (1) the assay range. "
             "Not always applicable."
         ),
     )
-    uncertainty: float = Field(
+    uncertainty: float | None = Field(
         None, description="Uncertainty in experimental measurement."
     )
 
@@ -53,27 +53,29 @@ class TrainingPrediction(BaseModel):
         1.0, description="Contribution of this loss function to the full loss."
     )
 
-    class Config:
-        # Allow things to be added to the object after initialization/validation
-        extra = Extra.allow
+    model_config = {
+        "arbitrary_types_allowed": True,
+        "validate_assignment": True,
+    }
 
-        # Allow torch types
-        arbitrary_types_allowed = True
-
-        # Custom encoder to cast device to str before trying to serialize
-        json_encoders = {
-            torch.Tensor: lambda t: t.tolist(),
-        }
-
-    @validator("target_val", pre=True, always=True)
+    @field_validator("target_val", mode="before")
     def cast_target_val(cls, v):
-        if isinstance(v, float):
-            return v
-
         if isinstance(v, torch.Tensor):
-            return v.clone().detach()
+            return v.item()
 
-        return torch.tensor(v)
+        return v
+
+    @field_validator("predictions", "loss_vals", mode="before")
+    def handle_nones(cls, val_list):
+        # Make sure there aren't any Nones being passed in
+        val_list = [v if v is not None else np.nan for v in val_list]
+        return val_list
+
+    @field_validator("pose_predictions", mode="before")
+    def handle_nones_nested_lists(cls, val_list):
+        # Make sure there aren't any Nones being passed in
+        val_list = [[v if v is not None else np.nan] for vals in val_list for v in vals]
+        return val_list
 
     def to_empty(self):
         """
@@ -86,7 +88,7 @@ class TrainingPrediction(BaseModel):
         """
 
         # Make a copy
-        d = self.dict()
+        d = self.model_dump()
 
         # Get rid of tracked values
         del d["predictions"]
@@ -105,21 +107,21 @@ class TrainingPredictionTracker(BaseModel):
         None, description="Internal dict storing all TrainingPredictions."
     )
 
-    class Config:
-        # Allow things to be added to the object after initialization/validation
-        extra = Extra.allow
+    model_config = {
+        "validate_assignment": True,
+        "validate_default": True,
+    }
 
-        # Custom encoder to cast device to str before trying to serialize
-        json_encoders = {
-            torch.Tensor: lambda t: t.tolist(),
-        }
-
-    @validator("split_dict", always=True)
+    @field_validator("split_dict", mode="before")
     def init_split_dict(cls, split_dict):
         # If nothing was passed, just init an empty dict
         if not split_dict:
             return {"train": [], "val": [], "test": []}
 
+        return split_dict
+
+    @field_validator("split_dict", mode="after")
+    def check_split_dict_values(cls, split_dict):
         # Make sure that the format is correct
         if split_dict.keys() != {"train", "val", "test"}:
             raise ValueError(f"Received unexpected dict keys: {split_dict.keys()}")
@@ -453,7 +455,7 @@ class TrainingPredictionTracker(BaseModel):
                     except KeyError:
                         cur_loss_configs[tp.compound_id] = {tp.loss_config.json()}
 
-                cur_loss_configs = {tuple(s) for s in cur_loss_configs.values()}
+                cur_loss_configs = {tuple(sorted(s)) for s in cur_loss_configs.values()}
                 if len(cur_loss_configs) > 1:
                     raise ValueError(f"Mismatched loss_configs in split {sp}")
                 elif len(cur_loss_configs) == 0:
@@ -1039,9 +1041,18 @@ def calc_epoch_stats(g):
     )
 
 
-def _load_one_df(fn, new_cols_dict, extract_epochs, target_prop):
-    print(fn, flush=True)
-    pred_tracker = TrainingPredictionTracker(**json.loads(fn.read_text()))
+def _load_one_df(fn, new_cols_dict, extract_epochs, target_prop, verbose):
+    if verbose:
+        print(fn, flush=True)
+    try:
+        pred_tracker = TrainingPredictionTracker(**json.loads(fn.read_text()))
+    except json.JSONDecodeError:
+        if verbose:
+            print("failed to read", fn, flush=True)
+        return None
+    except pydantic.ValidationError:
+        print("pydantic error parsing", fn, flush=True)
+        return None
 
     # DF with each compound's pred for each epoch
     compound_df = pred_tracker.to_plot_df(
@@ -1058,6 +1069,12 @@ def _load_one_df(fn, new_cols_dict, extract_epochs, target_prop):
         # Set cols in dfs
         compound_df[new_key] = new_val
         epoch_df[new_key] = new_val
+
+    # Capitalize the split keys (unless something else is already there)
+    if "Split" not in compound_df.columns:
+        compound_df["Split"] = [s.title() for s in compound_df["split"]]
+    if "Split" not in epoch_df.columns:
+        epoch_df["Split"] = [s.title() for s in epoch_df["split"]]
 
     # Will be a list of lists, so need to get the right list index
     per_compound_dfs = []
@@ -1087,7 +1104,9 @@ def load_collection_df(
     spec_lab_to_output_lab: dict[str, dict[str, str]] = None,
     extract_epochs: list[str | int] = None,
     target_prop: str = "pIC50",
+    run_date: datetime = None,
     n_workers: int = 1,
+    verbose: bool = True,
 ):
     """
     Load a collection of TrainingPredictionTracker objects from a group of run
@@ -1131,8 +1150,14 @@ def load_collection_df(
         * "best_mae": take the epoch with lowest MAE
     target_prop : str, default="pIC50"
         Target property to use when calling `pred_tracker.to_plot_df`
+    run_date : datetime, optional
+        Farthest date from which to accept a run. Any runs started before this date will
+        be ignored. If left blank, will include all found runs
     n_workers : int, default=1
         Number of concurrent processes to use for loading files
+    verbose : bool, default=True
+        Print whether each individual pred tracker file was successfully loaded. Useful
+        for debugging but can get noisy if you're loading a lot of files
 
     Returns
     -------
@@ -1141,7 +1166,10 @@ def load_collection_df(
     if extract_epochs is None:
         extract_epochs = []
     mp_func = partial(
-        _load_one_df, extract_epochs=extract_epochs, target_prop=target_prop
+        _load_one_df,
+        extract_epochs=extract_epochs,
+        target_prop=target_prop,
+        verbose=verbose,
     )
 
     mp_args = []
@@ -1153,12 +1181,22 @@ def load_collection_df(
         cur_model_dir = model_dir_str.format(**kwargs_dict)
         run_id_fn = top_level_dir / cur_model_dir / "run_id"
         if not run_id_fn.exists():
-            print(kwargs_dict, "not run yet", flush=True)
+            if verbose:
+                print(kwargs_dict, run_id_fn, "not run yet", flush=True)
             continue
+
+        # Make sure that the file was updated this year (ie recent run)
+        mod_time = datetime.fromtimestamp(run_id_fn.stat().st_mtime)
+        if run_date and (mod_time < run_date):
+            if verbose:
+                print(kwargs_dict, "missed date cutoff", flush=True)
+            continue
+
         run_id = run_id_fn.read_text()
         pred_tracker_fn = top_level_dir / cur_model_dir / f"{run_id}/pred_tracker.json"
         if not pred_tracker_fn.exists():
-            print(kwargs_dict, "still running", flush=True)
+            if verbose:
+                print(kwargs_dict, "still running", flush=True)
             continue
 
         new_cols_dict = {}
@@ -1175,6 +1213,9 @@ def load_collection_df(
 
     with mp.Pool(processes=n_workers) as pool:
         res = pool.starmap(mp_func, mp_args)
+
+    # Get rid of any failed runs
+    res = [r for r in res if r is not None]
 
     # Extract the results into lists of DFs to concatenate
     per_epoch_df = [r[0] for r in res]

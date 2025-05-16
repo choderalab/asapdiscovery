@@ -15,13 +15,25 @@ from asapdiscovery.data.schema.experimental import ExperimentalCompoundData
 from asapdiscovery.data.schema.ligand import Ligand
 from asapdiscovery.data.util.stringenum import StringEnum
 from asapdiscovery.data.util.utils import extract_compounds_from_filenames
-from asapdiscovery.ml.dataset import DockedDataset, GraphDataset, GroupedDockedDataset
+from asapdiscovery.ml.dataset import (
+    DockedDataset,
+    GraphDataset,
+    GroupedDockedDataset,
+    SplitDockedDataset,
+)
 from asapdiscovery.ml.es import (
     BestEarlyStopping,
     ConvergedEarlyStopping,
     PatientConvergedEarlyStopping,
 )
-from pydantic.v1 import BaseModel, Field, confloat, root_validator, validator
+from pydantic import (
+    BaseModel,
+    Field,
+    confloat,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
 
 class ConfigBase(BaseModel):
@@ -39,7 +51,7 @@ class ConfigBase(BaseModel):
         that a class needs to handle (see GATModelConfig as an example).
         """
 
-        orig_config = self.dict()
+        orig_config = self.model_dump()
 
         # Get new config by overwriting old stuff with any new stuff
         new_config = orig_config | config_updates
@@ -202,27 +214,27 @@ class EarlyStoppingConfig(ConfigBase):
         ),
     )
 
-    @root_validator(pre=False)
-    def check_args(cls, values):
-        match values["es_type"]:
+    @model_validator(mode="after")
+    def check_args(self):
+        match self.es_type:
             case EarlyStoppingType.none:
                 pass
             case EarlyStoppingType.best:
-                if values["patience"] is None:
+                if self.patience is None:
                     raise ValueError(
                         "Value required for patience when using BestEarlyStopping."
                     )
             case EarlyStoppingType.converged:
-                if (values["n_check"] is None) or (values["divergence"] is None):
+                if (self.n_check is None) or (self.divergence is None):
                     raise ValueError(
                         "Values required for n_check and divergence when using "
                         "ConvergedEarlyStopping."
                     )
             case EarlyStoppingType.patient_converged:
                 if (
-                    (values["n_check"] is None)
-                    or (values["divergence"] is None)
-                    or (values["patience"] is None)
+                    (self.n_check is None)
+                    or (self.divergence is None)
+                    or (self.patience is None)
                 ):
                     raise ValueError(
                         "Values required for n_check, divergence, and patience when "
@@ -231,7 +243,7 @@ class EarlyStoppingConfig(ConfigBase):
             case other:
                 raise ValueError(f"Unknown EarlyStoppingType: {other}")
 
-        return values
+        return self
 
     def build(
         self,
@@ -260,6 +272,7 @@ class DatasetType(StringEnum):
 
     graph = "graph"
     structural = "structural"
+    split = "split"
 
 
 class DatasetConfig(ConfigBase):
@@ -284,17 +297,42 @@ class DatasetConfig(ConfigBase):
             "experimental data."
         ),
     )
-    input_data: list[Complex] | list[Ligand] = Field(
-        ...,
+    input_data: list[Complex] | list[Ligand] | None = Field(
+        None,
         description=(
             "List of Complex objects (structure-based models) or Ligand objects "
             "(graph-based models), which will be used to generate the input structures."
+        ),
+    )
+    export_input_data: bool = Field(
+        False,
+        description=(
+            "Whether to actually save the input_data. Note that if this is "
+            "True, you are essentially saving multiple SDF/PDB files. If this is set "
+            "to False (default), a value must be provided for cache_file, otherwise "
+            "constructing the dataset will be impossible."
+        ),
+    )
+    export_exp_data: bool = Field(
+        False,
+        description=(
+            "Whether to actually save the exp_data. If this is set to False (default), "
+            "a value must be provided for cache_file, otherwise constructing the "
+            "dataset will be impossible."
         ),
     )
 
     # Cache file to save to/load from. Probably want to move away from pickle eventually
     cache_file: Path | None = Field(
         None, description="Pickle cache file of the actual dataset object."
+    )
+    cache_protein: bool = Field(
+        False,
+        description=(
+            "Actually save the coordinates when caching the Dataset. Leaving this as "
+            "False will make loading a bit longer, but will save a significant amount "
+            "of disk space when caching."
+        ),
     )
 
     # Parallelize data processing
@@ -315,17 +353,36 @@ class DatasetConfig(ConfigBase):
     # Torch device to send loaded dataset to
     device: torch.device = Field("cpu", description="Device to send loaded dataset to.")
 
-    class Config:
-        # Allow torch.device Fields
-        arbitrary_types_allowed = True
+    model_config = {"arbitrary_types_allowed": True}
 
-        # Custom encoder to cast device to str before trying to serialize
-        json_encoders = {torch.device: lambda d: str(d)}
+    @field_serializer("device", when_used="always")
+    def serialize_torch_device(self, device: torch.device):
+        return str(device)
 
-    @root_validator(pre=False)
-    def check_data_type(cls, values):
-        inp = values["input_data"][0]
-        match values["ds_type"]:
+    @model_validator(mode="after")
+    def check_input_data_exists(self):
+        if self.input_data is None:
+            if self.cache_file is None:
+                raise ValueError(
+                    "A value must be supplied for cache_file if no data is passed to "
+                    "input_data."
+                )
+            if not self.cache_file.exists():
+                raise ValueError(
+                    "If no data is passed to input_data the passed cache_file must "
+                    "exist."
+                )
+
+        return self
+
+    @model_validator(mode="after")
+    def check_data_type(self):
+        # Just return here, make sure cache_file is supplied in a different function
+        if self.input_data is None:
+            return self
+
+        inp = self.input_data[0]
+        match self.ds_type:
             case DatasetType.graph:
                 if not isinstance(inp, Ligand):
                     raise ValueError(
@@ -336,22 +393,64 @@ class DatasetConfig(ConfigBase):
             case DatasetType.structural:
                 if not isinstance(inp, Complex):
                     raise ValueError(
-                        "Expected Complex input data for structure-based model, but got "
-                        f"{type(inp)}."
+                        "Expected Complex input data for structure-based model, but "
+                        f"got {type(inp)}."
                     )
-
+            case DatasetType.split:
+                # Still need to make sure we have Complex data
+                if not isinstance(inp, Complex):
+                    raise ValueError(
+                        "Expected Complex input data for structure-based model, but "
+                        f"got {type(inp)}."
+                    )
             case other:
                 raise ValueError(f"Unknown dataset type {other}.")
 
-        return values
+        return self
 
-    @validator("device", pre=True)
+    @field_validator("device", mode="before")
     def fix_device(cls, v):
         """
         The torch device gets serialized as a string and the Trainer class doesn't
         automatically cast it back to a device.
         """
         return torch.device(v)
+
+    # Override the pydantic functions to conditionally exclude input_data from being
+    #  serialized
+    def model_dump(self, **kwargs):
+        for check_field, export_field in zip(
+            ["input_data", "exp_data"], [self.export_input_data, self.export_exp_data]
+        ):
+            if (
+                ("include" not in kwargs)
+                or (kwargs["include"] is None)
+                or (check_field not in kwargs["include"])
+            ):
+                if not export_field:
+                    try:
+                        kwargs["exclude"].add(check_field)
+                    except (KeyError, AttributeError):
+                        kwargs["exclude"] = {check_field}
+
+        return super().model_dump(**kwargs)
+
+    def model_dump_json(self, **kwargs):
+        for check_field, export_field in zip(
+            ["input_data", "exp_data"], [self.export_input_data, self.export_exp_data]
+        ):
+            if (
+                ("include" not in kwargs)
+                or (kwargs["include"] is None)
+                or (check_field not in kwargs["include"])
+            ):
+                if not export_field:
+                    try:
+                        kwargs["exclude"].add(check_field)
+                    except (KeyError, AttributeError):
+                        kwargs["exclude"] = {check_field}
+
+        return super().model_dump_json(**kwargs)
 
     @classmethod
     def from_exp_file(cls, exp_file: Path, **config_kwargs):
@@ -412,6 +511,7 @@ class DatasetConfig(ConfigBase):
         cpd_regex: str,
         for_training: bool = False,
         exp_file: Path | None = None,
+        ds_type: DatasetType = DatasetType.structural,
         **config_kwargs,
     ):
         """
@@ -498,7 +598,7 @@ class DatasetConfig(ConfigBase):
         }
 
         return cls(
-            ds_type=DatasetType.structural,
+            ds_type=ds_type,
             exp_data=exp_data,
             input_data=input_data,
             **config_kwargs,
@@ -509,6 +609,20 @@ class DatasetConfig(ConfigBase):
         if self.cache_file and self.cache_file.exists() and (not self.overwrite):
             print("loading from cache", flush=True)
             ds = pkl.loads(self.cache_file.read_bytes())
+
+            # Protein data might not exist if we're not caching it to save space, so
+            #  make sure
+            if (self.ds_type == DatasetType.split) and (
+                "protein" not in next(iter(ds))[1]
+            ):
+                for pose in ds.structures:
+                    # Extract the protein atoms
+                    lig_idx = pose["complex"]["lig"]
+                    prot_pose = {
+                        k: pose["complex"][k][~lig_idx] for k in ["pos", "z", "x", "b"]
+                    }
+                    pose["protein"] = prot_pose
+
             if self.for_e3nn:
                 ds = DatasetConfig.fix_e3nn_labels(ds, grouped=self.grouped)
 
@@ -544,11 +658,22 @@ class DatasetConfig(ConfigBase):
                     )
                 if self.for_e3nn:
                     ds = DatasetConfig.fix_e3nn_labels(ds, grouped=self.grouped)
+            case DatasetType.split:
+                ds = SplitDockedDataset.from_complexes(
+                    self.input_data, exp_dict=self.exp_data
+                )
             case other:
                 raise ValueError(f"Unknwon dataset type {other}.")
 
         if self.cache_file:
-            self.cache_file.write_bytes(pkl.dumps(ds))
+            if (self.ds_type == DatasetType.split) and (not self.cache_protein):
+                tmp_ds = deepcopy(ds)
+                for pose in tmp_ds.structures:
+                    del pose["protein"]
+                self.cache_file.write_bytes(pkl.dumps(tmp_ds))
+                del tmp_ds
+            else:
+                self.cache_file.write_bytes(pkl.dumps(ds))
 
         # Shuttle data to desired device
         for _, d in ds:
@@ -564,7 +689,7 @@ class DatasetConfig(ConfigBase):
     def fix_e3nn_labels(ds, grouped=False):
         new_ds = deepcopy(ds)
         for _, data in new_ds:
-            if grouped:
+            if isinstance(ds, GroupedDockedDataset):
                 for pose in data["poses"]:
                     # Check if this pose has already been adjusted
                     if pose["z"].is_floating_point():
@@ -573,6 +698,17 @@ class DatasetConfig(ConfigBase):
 
                     pose["x"] = torch.nn.functional.one_hot(pose["z"] - 1, 100).float()
                     pose["z"] = pose["lig"].reshape((-1, 1)).float()
+            elif isinstance(ds, SplitDockedDataset):
+                for lab in ["complex", "protein"]:
+                    # Check if this data has already been adjusted
+                    if data[lab]["z"].is_floating_point():
+                        # Assume it'll only be floats if we've already run this function
+                        continue
+
+                    data[lab]["x"] = torch.nn.functional.one_hot(
+                        data[lab]["z"] - 1, 100
+                    ).float()
+                    data[lab]["z"] = data[lab]["lig"].reshape((-1, 1)).float()
             else:
                 # Check if this data has already been adjusted
                 if data["z"].is_floating_point():
@@ -641,19 +777,19 @@ class DatasetSplitterConfig(ConfigBase):
         ),
     )
 
-    @root_validator(pre=False)
-    def check_frac_sum(cls, values):
+    @model_validator(mode="after")
+    def check_frac_sum(self):
         # Don't need to check if we're doing manual split mode
-        if values["split_type"] is DatasetSplitterType.manual:
-            return values
+        if self.split_type is DatasetSplitterType.manual:
+            return self
 
-        frac_sum = sum([values["train_frac"], values["val_frac"], values["test_frac"]])
+        frac_sum = sum([self.train_frac, self.val_frac, self.test_frac])
         if frac_sum < 0:
             raise ValueError("Can't have negative split fractions.")
 
         if not np.isclose(frac_sum, 1):
             warn_msg = f"Split fractions add to {frac_sum:0.2f}, not 1."
-            if values["enforce_one"]:
+            if self.enforce_one:
                 raise ValueError(warn_msg)
             else:
                 from warnings import warn
@@ -663,36 +799,36 @@ class DatasetSplitterConfig(ConfigBase):
             if frac_sum > 1:
                 raise ValueError("Can't have split fractions adding to > 1.")
 
-        return values
+        return self
 
-    @root_validator(pre=False)
-    def check_split_dict(cls, values):
-        if values["split_type"] is DatasetSplitterType.manual:
-            if values["split_dict"] is None:
+    @model_validator(mode="after")
+    def check_split_dict(self):
+        if self.split_type is DatasetSplitterType.manual:
+            if self.split_dict is None:
                 raise ValueError(
                     "Must pass value for split_dict if using manual splitting."
                 )
 
-            if isinstance(values["split_dict"], Path):
+            if isinstance(self.split_dict, Path):
                 try:
-                    values["split_dict"] = json.loads(values["split_dict"].read_text())
+                    self.split_dict = json.loads(self.split_dict.read_text())
                 except json.decoder.JSONDecodeError:
                     raise ValueError(
                         "Path given by split_dict must be a JSON file storing a dict."
                     )
 
-            if set(values["split_dict"].keys()) != {"train", "val", "test"}:
+            if set(self.split_dict.keys()) != {"train", "val", "test"}:
                 raise ValueError(
                     "Keys in split_dict must be exactly [train, val, test]."
                 )
 
             # Cast to tuples to match compounds in the datasets
-            values["split_dict"] = {
+            self.split_dict = {
                 split: list(map(tuple, compound_list))
-                for split, compound_list in values["split_dict"].items()
+                for split, compound_list in self.split_dict.items()
             }
 
-        return values
+        return self
 
     def split(self, ds: DockedDataset | GraphDataset | GroupedDockedDataset):
         """
@@ -989,7 +1125,7 @@ class LossFunctionConfig(ConfigBase):
     )
 
     # Value to fill in for semiquant uncertainty values in gaussian_sq loss
-    semiquant_fill: float = Field(
+    semiquant_fill: float | None = Field(
         None,
         description=(
             "Value to fill in for semiquant uncertainty values in gaussian_sq loss."
@@ -997,29 +1133,29 @@ class LossFunctionConfig(ConfigBase):
     )
 
     # Range values for RangeLoss
-    range_lower_lim: float = Field(
+    range_lower_lim: float | None = Field(
         None, description="Lower range of acceptable prediction values."
     )
-    range_upper_lim: float = Field(
+    range_upper_lim: float | None = Field(
         None, description="Upper range of acceptable prediction values."
     )
 
-    @root_validator(pre=False)
-    def check_range_lims(cls, values):
-        if values["loss_type"] is not LossFunctionType.range_penalty:
-            return values
+    @model_validator(mode="after")
+    def check_range_lims(self):
+        if self.loss_type is not LossFunctionType.range_penalty:
+            return self
 
-        if (values["range_lower_lim"] is None) or (values["range_upper_lim"] is None):
+        if (self.range_lower_lim is None) or (self.range_upper_lim is None):
             raise ValueError(
                 "Values must be passed for range_lower_lim and range_upper_lim."
             )
 
-        if values["range_lower_lim"] >= values["range_upper_lim"]:
+        if self.range_lower_lim >= self.range_upper_lim:
             raise ValueError(
                 "Value given for range_lower_lim >= value given for range_upper_lim."
             )
 
-        return values
+        return self
 
     def build(self):
         from asapdiscovery.ml.loss import (
