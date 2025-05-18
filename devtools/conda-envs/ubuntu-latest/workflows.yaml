@@ -3,4 +3,7 @@ channels:
   - openeye
   - conda-forge
 dependencies:
-# drugforge {all the other packages}
+  # drugforge {all the other packages}
+  click
+  pydantic
+  unittest

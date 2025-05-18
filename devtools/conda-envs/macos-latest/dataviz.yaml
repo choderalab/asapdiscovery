@@ -1,7 +1,20 @@
 name: workflows
 channels:
+  - bioconda
   - openeye
   - conda-forge
 dependencies:
 # drugforge {all the other packages}
   logomaker
+  airium
+  PIL
+  click
+  imageio
+  matplotlib
+  mdtraj
+  multimethod
+  pandas
+  pydantic
+  pygifsicle
+  pymol2
+  pytest
