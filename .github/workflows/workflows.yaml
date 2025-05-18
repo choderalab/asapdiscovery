@@ -55,18 +55,34 @@ jobs:
     - name: Setup Conda Environment
       uses: mamba-org/setup-micromamba@v1
       with:
-        # default - will pull down 2.0 which we don't want!
-        # micromamba-version: latest
-        # pin to latest 1.x release
-        micromamba-version: '1.5.10-0'
-        environment-file: devtools/conda-envs/asapdiscovery-${{ matrix.os }}.yml
-        environment-name: asapdiscovery
+        micromamba-version: latest
+        environment-file: devtools/conda-envs/${{ matrix.os }}/workflows.yaml
+        environment-name: workflows
         cache-environment: true
         cache-downloads: true
         cache-environment-key: environment-${{ steps.date.outputs.date }}
         cache-downloads-key: downloads-${{ steps.date.outputs.date }}
         create-args: >-
           python==${{ matrix.python-version }}
+
+    - name: Install packages
+      run: |
+        micromamba install -n workflows --file devtools/conda-envs/${{ matrix.os }}/data.yaml
+        micromamba install -n workflows --file devtools/conda-envs/${{ matrix.os }}/simulation.yaml
+        micromamba install -n workflows --file devtools/conda-envs/${{ matrix.os }}/spectrum.yaml
+        micromamba install -n workflows --file devtools/conda-envs/${{ matrix.os }}/cli.yaml
+        micromamba install -n workflows --file devtools/conda-envs/${{ matrix.os }}/docking.yaml
+        micromamba install -n workflows --file devtools/conda-envs/${{ matrix.os }}/dataviz.yaml
+        python -m pip install -e ./asapdiscovery-data --no-deps
+        python -m pip install -e ./asapdiscovery-modeling --no-deps
+        python -m pip install -e ./asapdiscovery-cli --no-deps
+        python -m pip install -e ./asapdiscovery-dataviz --no-deps
+        python -m pip install -e ./asapdiscovery-docking --no-deps
+        python -m pip install -e ./asapdiscovery-ml --no-deps
+        python -m pip install -e ./asapdiscovery-simulation --no-deps
+        python -m pip install -e ./asapdiscovery-spectrum --no-deps
+        python -m pip install -e ./asapdiscovery-workflows --no-deps
+        micromamba list
 
     - name: Test OE License & Write License to File
       env:
@@ -75,25 +91,15 @@ jobs:
         echo "${OE_LICENSE_TEXT}" > ${OE_LICENSE}
         python -c "import openeye; assert openeye.oechem.OEChemIsLicensed(), 'OpenEye license checks failed!'"
 
-    - name: Install packages
-      run: |
-        python -m pip install -e ./asapdiscovery-cli --no-deps
-        python -m pip install -e ./asapdiscovery-data --no-deps
-        python -m pip install -e ./asapdiscovery-dataviz --no-deps
-        python -m pip install -e ./asapdiscovery-docking --no-deps
-        python -m pip install -e ./asapdiscovery-ml --no-deps
-        python -m pip install -e ./asapdiscovery-modeling --no-deps
-        python -m pip install -e ./asapdiscovery-simulation --no-deps
-        python -m pip install -e ./asapdiscovery-spectrum --no-deps
-        python -m pip install -e ./asapdiscovery-workflows --no-deps
-        micromamba list
-
     - name: Run tests
+      env:
+        CDDTOKEN: ${{ secrets.ASAP_CDD_VAULT_TOKEN_READ_ONLY }}
+        MOONSHOT_CDD_VAULT_NUMBER: ${{ secrets.MOONSHOT_CDD_VAULT_NUMBER }}
       run: |
         # run each package test suite; append to coverage file
         # Exit immediately if a command exits with a non-zero status.
         set -e
-        pytest  --durations=10 -v --cov-report=xml --cov-report=term --color=yes \
+        pytest -n auto --durations=10 -v --cov-report=xml --cov-report=term --color=yes \
                        --cov=asapdiscovery-workflows \
                        asapdiscovery-workflows/asapdiscovery/workflows/tests
 

@@ -1,0 +1,6 @@
+name: modeling
+channels:
+  - openeye
+  - conda-forge
+dependencies:
+  # drugforge-data

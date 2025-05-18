@@ -53,13 +53,9 @@ jobs:
 
     # More info on options: https://github.com/mamba-org/provision-with-micromamba
     - name: Setup Conda Environment
-      uses: mamba-org/setup-micromamba@v1
+      uses: mamba-org/setup-micromamba@v2
       with:
-        # default - will pull down 2.0 which we don't want!
-        # micromamba-version: latest
-        # pin to latest 1.x release
-        micromamba-version: '1.5.10-0'
-        environment-file: devtools/conda-envs/asapdiscovery-${{ matrix.os }}.yml
+        environment-file: devtools/conda-envs/${{ matrix.os }}/ml.yaml
         environment-name: asapdiscovery
         cache-environment: true
         cache-downloads: true
@@ -77,12 +73,15 @@ jobs:
 
     - name: Install packages
       run: |
+        micromamba install -n ml-cli --file devtools/conda-envs/${{ matrix.os }}/data.yaml
+        micromamba install -n ml-cli --file devtools/conda-envs/${{ matrix.os }}/docking.yaml
+        micromamba install -n ml-cli --file devtools/conda-envs/${{ matrix.os }}/modeling.yaml
+        micromamba install -n ml-cli --file devtools/conda-envs/${{ matrix.os }}/alchemy.yaml
+        micromamba install -n ml-cli --file devtools/conda-envs/${{ matrix.os }}/cli.yaml
         python -m pip install -e ./asapdiscovery-data --no-deps
-        python -m pip install -e ./asapdiscovery-dataviz --no-deps
         python -m pip install -e ./asapdiscovery-docking --no-deps
         python -m pip install -e ./asapdiscovery-ml --no-deps
         python -m pip install -e ./asapdiscovery-modeling --no-deps
-        python -m pip install -e ./asapdiscovery-simulation --no-deps
         python -m pip install -e ./asapdiscovery-alchemy --no-deps
         python -m pip install -e ./asapdiscovery-cli --no-deps
 

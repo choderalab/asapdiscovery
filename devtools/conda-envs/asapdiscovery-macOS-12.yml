@@ -31,7 +31,7 @@ dependencies:
   - openmmforcefields >= 0.13.0
   - pandas
   - pebble
-  - pydantic >=1.10.8,<2.0.0a0
+  - pydantic >=2.0.0a0
   - rdkit
   - seaborn
   - panel
@@ -63,10 +63,10 @@ dependencies:
   - numpy
   - h5py
   - e3nn
-  - dgl <=2.0.0
+  - dgl
   - dgllife
   - pooch
-  - mtenn =0.6.2
+  - mtenn >=0.6.3
   - wandb
 
   # md

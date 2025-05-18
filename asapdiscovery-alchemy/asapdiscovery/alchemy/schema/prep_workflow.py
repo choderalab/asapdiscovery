@@ -12,13 +12,13 @@ from asapdiscovery.data.operators.state_expanders.stereo_expander import StereoE
 from asapdiscovery.data.operators.state_expanders.tautomer_expander import (
     TautomerExpander,
 )
-from asapdiscovery.data.schema.complex import PreppedComplex
+from asapdiscovery.modeling.schema import PreppedComplex
 from asapdiscovery.data.schema.ligand import Ligand
 from asapdiscovery.docking.schema.pose_generation import (
     OpenEyeConstrainedPoseGenerator,
     RDKitConstrainedPoseGenerator,
 )
-from pydantic import Field
+from pydantic.v1 import Field
 from rich import pretty
 from rich.padding import Padding
 
@@ -146,7 +146,7 @@ class AlchemyPrepWorkflow(_AlchemyPrepBase):
             The experimental_ligands in order of MCS overlap with the reference ligand
         """
         import numpy as np
-        from asapdiscovery.data.operators.selectors.mcs_selector import sort_by_mcs
+        from asapdiscovery.docking.selectors.mcs_selector import sort_by_mcs
 
         # use the mcs code to get the ordered indices of the matches
         sort_idx = sort_by_mcs(

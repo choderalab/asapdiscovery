@@ -68,7 +68,7 @@ def upload_to_postera(
     from asapdiscovery.data.services.postera.manifold_data_validation import (
         rename_output_columns_for_manifold,
     )
-    from asapdiscovery.data.services.postera.postera_uploader import PosteraUploader
+    from asapdiscovery.workflows.postera.postera_uploader import PosteraUploader
     from asapdiscovery.data.services.services_config import PosteraSettings
 
     # mock an enum to specify which columns are allowed

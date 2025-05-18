@@ -1,0 +1,6 @@
+name: cli
+channels:
+  - conda-forge
+dependencies:
+  - click
+  - pytest

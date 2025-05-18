@@ -311,7 +311,7 @@ def test_get_actioned_weights(alchemiscale_helper, monkeypatch, tyk2_fec_network
 def test_upload_to_postera(monkeypatch, tyk2_result_network):
     """A mocked test to make sure the dataframe is formatted correctly ready for upload to postera."""
     from asapdiscovery.alchemy.predict import get_data_from_femap
-    from asapdiscovery.data.services.postera.postera_uploader import PosteraUploader
+    from asapdiscovery.workflows.postera.postera_uploader import PosteraUploader
 
     fe_map = tyk2_result_network.results.to_fe_map()
     fe_map.generate_absolute_values()

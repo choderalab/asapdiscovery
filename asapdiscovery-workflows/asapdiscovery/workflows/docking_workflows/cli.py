@@ -22,7 +22,7 @@ from asapdiscovery.cli.cli_args import (
     target,
     use_only_cache,
 )
-from asapdiscovery.data.operators.selectors.selector_list import StructureSelector
+from asapdiscovery.docking.selectors.selector_list import StructureSelector
 from asapdiscovery.data.services.postera.manifold_data_validation import TargetTags
 from asapdiscovery.data.util.dask_utils import DaskType, FailureMode
 from asapdiscovery.docking.openeye import POSIT_METHOD, POSIT_RELAX_MODE
@@ -217,7 +217,7 @@ def large_scale(
 @click.option(
     "--structure-selector",
     type=click.Choice(StructureSelector.get_values(), case_sensitive=False),
-    default=StructureSelector.LEAVE_SIMILAR_OUT,
+    default=StructureSelector.LEAVE_SIMILAR_OUT.value,
     help="The type of structure selector to use.",
 )
 @click.option("--num-poses", type=int, default=1, help="Number of poses to generate")

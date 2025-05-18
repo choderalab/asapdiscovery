@@ -17,7 +17,7 @@ from asapdiscovery.data.services.postera.molecule_set import (
     MoleculeUpdateList,
 )
 from asapdiscovery.data.services.postera.postera_factory import PosteraFactory
-from asapdiscovery.data.services.postera.postera_uploader import PosteraUploader
+from asapdiscovery.workflows.postera.postera_uploader import PosteraUploader
 from asapdiscovery.data.services.services_config import PosteraSettings
 from requests.exceptions import HTTPError
 

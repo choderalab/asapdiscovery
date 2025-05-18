@@ -1,0 +1,42 @@
+name: alchemy
+channels:
+  - openeye
+  - conda-forge
+dependencies:
+  - alchemiscale
+  - bokeh
+  - cinnabar
+  - click
+  - gufe
+  - kartograf
+  - lomap2
+  - networkx
+  - numpy
+  - openeye-toolkits
+  - openfe
+  - openff-toolkit
+  - openff-models
+  - openff-qcsubmit
+  - openff-units
+  - openff-utilities
+  - openmm
+  - pandas
+  - panel
+  - perses
+  - plotmol
+  - rdkit
+  - rich
+  - tqdm
+  - pip
+  - python >=3.10,<3.12
+  - pydantic >=2.0.0a0
+  - typing-extensions
+  - pyyaml
+  - pooch
+  - pytest
+  - pytest-cov
+  - pytest-xdist
+  - codecov
+  - pytest-console-scripts
+  - pytest-timeout
+  - requests-mock

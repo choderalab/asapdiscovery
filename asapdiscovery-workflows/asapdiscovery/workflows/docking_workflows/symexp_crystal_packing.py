@@ -2,13 +2,13 @@ from pathlib import Path
 from shutil import rmtree
 
 from asapdiscovery.data.operators.deduplicator import LigandDeDuplicator
-from asapdiscovery.data.operators.selectors.mcs_selector import RascalMCESSelector
+from asapdiscovery.docking.selectors.mcs_selector import RascalMCESSelector
 from asapdiscovery.data.operators.symmetry_expander import SymmetryExpander
 from asapdiscovery.data.readers.meta_ligand_factory import MetaLigandFactory
 from asapdiscovery.data.readers.meta_structure_factory import MetaStructureFactory
 from asapdiscovery.data.services.aws.cloudfront import CloudFront
 from asapdiscovery.data.services.aws.s3 import S3
-from asapdiscovery.data.services.postera.manifold_artifacts import (
+from asapdiscovery.workflows.postera.manifold_artifacts import (
     ArtifactType,
     ManifoldArtifactUploader,
 )
@@ -17,7 +17,7 @@ from asapdiscovery.data.services.postera.manifold_data_validation import (
     rename_output_columns_for_manifold,
 )
 from asapdiscovery.data.services.postera.molecule_set import MoleculeSetAPI
-from asapdiscovery.data.services.postera.postera_uploader import PosteraUploader
+from asapdiscovery.workflows.postera.postera_uploader import PosteraUploader
 from asapdiscovery.data.services.services_config import (
     CloudfrontSettings,
     PosteraSettings,
@@ -34,7 +34,7 @@ from asapdiscovery.modeling.protein_prep import ProteinPrepper
 from asapdiscovery.workflows.docking_workflows.workflows import (
     PosteraDockingWorkflowInputs,
 )
-from pydantic import Field
+from pydantic.v1 import Field
 
 
 class SymExpCrystalPackingInputs(PosteraDockingWorkflowInputs):

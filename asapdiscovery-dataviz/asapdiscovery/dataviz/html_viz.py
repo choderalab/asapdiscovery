@@ -19,7 +19,7 @@ from asapdiscovery.data.backend.openeye import (
     oemol_to_sdf_string,
     openeye_perceive_residues,
 )
-from asapdiscovery.data.backend.plip import (
+from asapdiscovery.dataviz.plip import (
     get_interactions_plip,
     make_color_res_fitness,
     make_color_res_subpockets,
@@ -45,7 +45,7 @@ from asapdiscovery.spectrum.fitness import (
     target_has_fitness_data,
 )
 from multimethod import multimethod
-from pydantic import Field, root_validator
+from pydantic.v1 import Field, root_validator
 
 logger = logging.getLogger(__name__)
 

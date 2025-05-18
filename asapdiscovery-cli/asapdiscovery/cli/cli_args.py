@@ -1,10 +1,4 @@
 import click
-from asapdiscovery.data.services.postera.manifold_data_validation import TargetTags
-from asapdiscovery.data.util.dask_utils import DaskType, FailureMode
-from asapdiscovery.ml.models import ASAPMLModelRegistry
-from asapdiscovery.simulation.simulate import OpenMMPlatform
-
-
 def postera(func):
     return click.option(
         "--postera",
@@ -46,6 +40,7 @@ def use_dask(func):
 
 
 def dask_type(func):
+    from asapdiscovery.data.util.dask_utils import DaskType
     return click.option(
         "--dask-type",
         type=click.Choice(DaskType.get_values(), case_sensitive=False),
@@ -55,6 +50,7 @@ def dask_type(func):
 
 
 def failure_mode(func):
+    from asapdiscovery.data.util.dask_utils import FailureMode
     return click.option(
         "--failure-mode",
         type=click.Choice(FailureMode.get_values(), case_sensitive=False),
@@ -78,6 +74,7 @@ def dask_args(func):
 
 
 def target(func):
+    from asapdiscovery.data.services.postera.manifold_data_validation import TargetTags
     return click.option(
         "--target",
         type=click.Choice(TargetTags.get_values(), case_sensitive=True),
@@ -123,6 +120,7 @@ def input_json(func):
 
 
 def ml_scorers(func):
+    from asapdiscovery.ml.models import ASAPMLModelRegistry
     return click.option(
         "--ml-scorer",
         type=click.Choice(
@@ -216,6 +214,7 @@ def md_steps(func):
 
 
 def md_openmm_platform(func):
+    from asapdiscovery.simulation.simulate import OpenMMPlatform
     return click.option(
         "--md-openmm-platform",
         type=click.Choice(OpenMMPlatform.get_values(), case_sensitive=False),

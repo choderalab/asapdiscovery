@@ -2,8 +2,9 @@ import logging
 from itertools import product
 from typing import ClassVar, Union
 
-from asapdiscovery.data.operators.selectors.selector import SelectorBase
-from asapdiscovery.data.schema.complex import Complex, ComplexBase, PreppedComplex
+from asapdiscovery.docking.selectors.selector import SelectorBase
+from asapdiscovery.data.schema.complex import Complex, ComplexBase
+from asapdiscovery.modeling.schema import PreppedComplex
 from asapdiscovery.data.schema.ligand import ChemicalRelationship, Ligand
 from asapdiscovery.data.schema.pairs import CompoundStructurePair
 

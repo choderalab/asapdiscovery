@@ -7,7 +7,7 @@ from asapdiscovery.data.services.web_utils import _BaseWebAPI
 from asapdiscovery.data.util.stringenum import StringEnum
 from typing_extensions import TypedDict
 
-from .manifold_data_validation import ManifoldAllowedTags
+from asapdiscovery.data.services.postera.manifold_data_validation import ManifoldAllowedTags
 
 logger = logging.getLogger(__name__)
 

@@ -10,7 +10,7 @@ import MDAnalysis as mda
 import numpy as np
 import pandas as pd
 from asapdiscovery.data.backend.openeye import oedocking, oemol_to_pdb_string
-from asapdiscovery.data.backend.plip import compute_fint_score
+from asapdiscovery.dataviz.plip import compute_fint_score
 from asapdiscovery.data.schema.complex import Complex
 from asapdiscovery.data.schema.ligand import Ligand, LigandIdentifiers
 from asapdiscovery.data.schema.target import TargetIdentifiers
@@ -28,7 +28,7 @@ from asapdiscovery.ml.models import MLModelSpecBase
 from asapdiscovery.spectrum.fitness import target_has_fitness_data
 from mtenn.config import ModelType
 from multimethod import multimethod
-from pydantic import BaseModel, Field, validator
+from pydantic.v1 import BaseModel, Field, validator
 
 logger = logging.getLogger(__name__)
 

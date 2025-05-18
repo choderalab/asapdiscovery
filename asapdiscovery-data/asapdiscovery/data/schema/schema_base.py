@@ -4,7 +4,7 @@ import json
 from enum import Enum
 from pathlib import Path
 
-from pydantic import BaseModel, ByteSize
+from pydantic.v1 import BaseModel, ByteSize, Field
 
 _SCHEMA_VERSION = "0.1.0"
 
@@ -113,3 +113,38 @@ def schema_dict_get_val_overload(obj: dict | BaseModel):
         return obj.dict().values()
     else:
         raise TypeError(f"Unsupported type {type(obj)}")
+
+
+class MoleculeComponent(str, Enum):
+    PROTEIN = "protein"
+    LIGAND = "ligand"
+    WATER = "water"
+    OTHER = "other"
+
+
+class MoleculeFilter(BaseModel):
+    """Filter for selecting components of a molecule."""
+
+    class Config:
+        extra = "forbid"
+
+    protein_chains: list = Field(
+        list(),
+        description="List of chains containing the desired protein. An empty list will return all chains.",
+    )
+    ligand_chain: str = Field(
+        None,
+        description="Chain containing the desired ligand. An empty list will return all chains.",
+    )
+    water_chains: list = Field(
+        list(),
+        description="List of chains containing the desired water. An empty list will return all chains.",
+    )
+    other_chains: list = Field(
+        list(),
+        description="List of chains containing other items. An empty list will return all chains.",
+    )
+    components_to_keep: list[MoleculeComponent] = Field(
+        ["protein", "ligand", "water", "other"],
+        description="List of components to keep. An empty list will return all components.",
+    )

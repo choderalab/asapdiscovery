@@ -4,8 +4,9 @@ from typing import ClassVar, Union
 
 import numpy as np
 from asapdiscovery.data.backend.openeye import oechem
-from asapdiscovery.data.operators.selectors.selector import SelectorBase
-from asapdiscovery.data.schema.complex import Complex, ComplexBase, PreppedComplex
+from asapdiscovery.docking.selectors.selector import SelectorBase
+from asapdiscovery.data.schema.complex import Complex, ComplexBase
+from asapdiscovery.modeling.schema import PreppedComplex
 from asapdiscovery.data.schema.ligand import Ligand
 from asapdiscovery.data.schema.pairs import CompoundStructurePair
 from asapdiscovery.data.util.dask_utils import (
@@ -14,7 +15,7 @@ from asapdiscovery.data.util.dask_utils import (
 )
 from asapdiscovery.docking.docking import DockingInputPair  # TODO: move to backend
 from dask import delayed
-from pydantic import Field
+from pydantic.v1 import Field
 from rdkit import Chem, rdBase
 from rdkit.Chem import rdRascalMCES
 

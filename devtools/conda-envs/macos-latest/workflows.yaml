@@ -1,0 +1,9 @@
+name: workflows
+channels:
+  - openeye
+  - conda-forge
+dependencies:
+# drugforge {all the other packages}name: workflows
+  click
+  pydantic
+  unittest
