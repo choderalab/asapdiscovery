@@ -115,7 +115,6 @@ class Alignment:
                 host_str = " ".join(q.strip().split(" ")[1:])
             elif "organism" in q:
                 org_str = " ".join(q.strip().split(" ")[1:])
-
         filtered_idxs = [
             idx
             for idx in ordered_idxs
@@ -165,7 +164,8 @@ class Alignment:
         # Run alignment with MAFFT
         # SeqIO.write(self.seq_records, temp_file, "fasta")
         cmd = f"mafft {self.seq_records} > {alignment_file}"
-        subprocess.run(cmd, shell=True, capture_output=True)
+        sp_output = subprocess.run(cmd, shell=True, capture_output=True)
+        sp_output.check_returncode()
 
         self.align_obj = AlignIO.read(alignment_file, "fasta")
         return alignment_file
@@ -179,6 +179,7 @@ class Alignment:
         start_idx=0,
         skip=4,
         max_mismatch=2,
+        reorder="",
     ):
         """ "Bokeh sequence alignment view
             From: https://dmnfarrell.github.io/bioinformatics/bokeh-sequence-aligner
@@ -207,7 +208,14 @@ class Alignment:
         """
 
         # The function takes a biopython alignment object as input.
-        aln = self.align_obj[::-1]  # So output are ordered from top to bottom
+        aln = self.align_obj
+        if len(reorder[0]) > 0:
+            aln_ref = aln[:1]  # ref
+            aln_sorted = [aln[int(i)] for i in reorder]
+            aln_ref.extend(aln_sorted)
+            aln = aln_ref
+
+        aln = aln[::-1]  # So outputs are ordered from top to bottom
         seqs = [rec.seq for rec in (aln)]  # Each sequence input
         text = [i for s in list(seqs) for i in s]  # Al units joind on same list
 
@@ -222,21 +230,34 @@ class Alignment:
             return re.findall(pattern, x)[-1]
 
         desc = [f"{matches(rec.description)} ({rec.id})" for rec in aln]
+        colors_dict = {"exact": "white", "group": "orange", "none": "red"}
 
         # List with ALL colors
         # By aminoacid group or exact match
         if color_by_group:
             col_colors = []
             font_colors = []
+            match_keys = []
             for col in range(N):  # Go through each column
                 # Note: AlignIO item retrieval is done through a get_item function, so this has to be done with a loop
                 col_string = aln[:, col]
-                color, font_color = get_colors_by_aa_group(col_string, max_mismatch)
+                color, font_color, match_key = get_colors_by_aa_group(
+                    col_string, max_mismatch, colors_dict
+                )
                 col_colors.append(color)
                 font_colors.append(font_color)
+                match_keys.append(match_key)
             colors = col_colors * S
             # Append each font_color list "colum-wise"
             font_colors = np.array(font_colors).T.flatten()
+            # get a dictionary with counts for a printed report
+            from collections import Counter
+
+            print(
+                "The multi-sequence alignment returns the following matches:",
+            )
+            for key, value in Counter(match_keys).items():
+                print(f"{key}: {value}/{N}")
         else:
             colors = get_colors_protein(seqs)
             font_colors = ["black"] * len(colors)
@@ -434,13 +455,17 @@ def do_MSA(
     color_by_group: bool,
     start_alignment_idx: int,
     max_mismatch: int,
+    custom_order: str,
 ):
     save_file = alignment.dir_save / file_prefix
     # Select sequeneces of interest
     if select_mode == "checkbox":
         select_file = alignment.select_checkbox()
     elif "host" in select_mode or "organism" in select_mode:
-        select_file = alignment.select_taxonomy(select_mode, f"{save_file}.fasta")
+        if alignment.hosts[0] is None:
+            raise NameError("The csv input file provided does not have host information, you have to use the 'keyword' mode.")
+        else:
+            select_file = alignment.select_taxonomy(select_mode, f"{save_file}.fasta")
     else:
         select_file = alignment.select_keyword(select_mode, f"{save_file}.fasta")
 
@@ -468,6 +493,7 @@ def do_MSA(
         color_by_group=color_by_group,
         start_idx=start_alignment_idx,
         max_mismatch=max_mismatch,
+        reorder=custom_order.split(","),
     )
     print(f"A html file {align_html} have been generated with the aligned sequences")
 
@@ -499,7 +525,7 @@ def get_colors_protein(seqs):
 
 
 # Defining colors for each protein residue
-def get_colors_by_aa_group(seq: str, max_mismatch: int):
+def get_colors_by_aa_group(seq: str, max_mismatch: int, colors: dict):
     """Make fill and text color for exact and group aminoacid matches
 
     Parameters
@@ -508,6 +534,8 @@ def get_colors_by_aa_group(seq: str, max_mismatch: int):
         String with protein sequence
     max_mismatch : int
        Maximum number of group mismatches after which match won't be highlighted
+    colors :  dict
+       Dictionary with colors to use: {"exact", "group", "none"}
 
     Returns
     -------
@@ -525,18 +553,19 @@ def get_colors_by_aa_group(seq: str, max_mismatch: int):
     font_color = ["black"] * seq_len
     # Check the case where all aa's are the same
     if seq == seq_len * seq[0]:
-        color = "red"
+        key = "exact"
     # Check the case where all aa's belong to the same group (with some max mismatches)
     elif max_group_count >= seq_len - max_mismatch:
         if max_group is None:  # In case most "matches" are gaps
-            color = "white"
+            key = "none"
         else:
-            color = "yellow"
+            key = "group"
             # Make font red for mismatches
             font_color = ["black" if item == max_group else "red" for item in aa_groups]
     else:
-        color = "white"
-    return color, font_color
+        key = "none"
+    color = colors[key]
+    return color, font_color, key
 
 
 _AMINO_ACID_GROUPS = {

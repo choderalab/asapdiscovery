@@ -38,6 +38,7 @@ dependencies:
   - pymol-open-source
   - rdkit
   - plip
+  - mafft
 
   # Math
   - numpy

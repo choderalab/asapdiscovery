@@ -37,10 +37,6 @@ def test_pdb_to_seq(protein_path, tmp_path):
     )
 
 
-@pytest.mark.skipif(
-    os.getenv("RUNNER_OS") == "macOS",
-    reason="Test failing on GHA runner, fine locally.",
-)
 def test_MSA_host_key(blast_csv_path, tmp_path):
     blast_csv = pd.read_csv(blast_csv_path)
     alignment = Alignment(blast_csv, blast_csv["query"][0], tmp_path)
@@ -53,6 +49,7 @@ def test_MSA_host_key(blast_csv_path, tmp_path):
         color_by_group=False,
         start_alignment_idx=0,
         max_mismatch=2,
+        custom_order="",
     )
     assert aln_out.sucess
     assert all("Homo sapiens" in a or "Not found" in a for a in aln_out.hosts)
@@ -60,10 +57,6 @@ def test_MSA_host_key(blast_csv_path, tmp_path):
     assert all(len(a) == len(aln_out.align_obj[0]) for a in aln_out.align_obj)
 
 
-@pytest.mark.skipif(
-    os.getenv("RUNNER_OS") == "macOS",
-    reason="Test failing on GHA runner, fine locally.",
-)
 def test_MSA_keyword(blast_csv_path, tmp_path):
     blast_csv = pd.read_csv(blast_csv_path)
     alignment = Alignment(blast_csv, blast_csv["query"][0], tmp_path)
@@ -76,16 +69,13 @@ def test_MSA_keyword(blast_csv_path, tmp_path):
         color_by_group=False,
         start_alignment_idx=0,
         max_mismatch=2,
+        custom_order="",
     )
     assert aln_out.sucess
     assert len(aln_out.align_obj) == 3
     assert all(len(a) == len(aln_out.align_obj[0]) for a in aln_out.align_obj)
 
 
-@pytest.mark.skipif(
-    os.getenv("RUNNER_OS") == "macOS",
-    reason="Test failing on GHA runner, fine locally.",
-)
 def test_MSA_color_match(blast_csv_path, tmp_path):
     blast_csv = pd.read_csv(blast_csv_path)
     alignment = Alignment(blast_csv, blast_csv["query"][0], tmp_path)
@@ -98,11 +88,11 @@ def test_MSA_color_match(blast_csv_path, tmp_path):
         color_by_group=True,
         start_alignment_idx=0,
         max_mismatch=2,
+        custom_order="",
     )
     assert aln_out.sucess
 
 
-@pytest.mark.skipif(os.getenv("RUNNER_OS") == "macOS", reason="Slow on macOS")
 @pytest.mark.skipif(os.getenv("SKIP_EXPENSIVE_TESTS"), reason="Expensive tests skipped")
 def test_seq_alignment_pre_calc(blast_xml_path, tmp_path):
     runner = CliRunner()
@@ -123,7 +113,6 @@ def test_seq_alignment_pre_calc(blast_xml_path, tmp_path):
     assert click_success(result)
 
 
-@pytest.mark.skipif(os.getenv("RUNNER_OS") == "macOS", reason="Slow in macOS")
 @pytest.mark.skipif(os.getenv("SKIP_EXPENSIVE_TESTS"), reason="Expensive tests skipped")
 def test_seq_alignment_multimer(blast_xml_path, tmp_path):
     runner = CliRunner()
