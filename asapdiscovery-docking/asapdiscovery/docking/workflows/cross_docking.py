@@ -22,9 +22,7 @@ from asapdiscovery.docking.docking_data_validation import DockingResultCols
 from asapdiscovery.docking.openeye import POSIT_METHOD, POSIT_RELAX_MODE, POSITDocker
 from asapdiscovery.docking.scorer import ChemGauss4Scorer, MetaScorer
 from asapdiscovery.modeling.protein_prep import ProteinPrepper
-from asapdiscovery.workflows.docking_workflows.workflows import (
-    DockingWorkflowInputsBase,
-)
+from asapdiscovery.docking.workflows.docking_workflows import DockingWorkflowInputsBase
 from pydantic.v1 import Field, PositiveInt
 
 
@@ -203,11 +201,10 @@ def cross_docking_workflow(inputs: CrossDockingWorkflowInputs):
     )
     results = docker.dock(
         sets,
-        output_dir=output_dir / "docking_results",
         use_dask=inputs.use_dask,
         dask_client=dask_client,
         failure_mode=inputs.failure_mode,
-        return_for_disk_backend=True,
+        return_for_disk_backend=False,
     )
     n_results = len(results)
     logger.info(f"Docked {n_results} pairs successfully")
@@ -227,7 +224,7 @@ def cross_docking_workflow(inputs: CrossDockingWorkflowInputs):
         write_results_to_multi_sdf(
             output_dir / "docking_results.sdf",
             results,
-            backend=BackendType.DISK,
+            backend=BackendType.IN_MEMORY,
             reconstruct_cls=docker.result_cls,
         )
 
@@ -238,23 +235,11 @@ def cross_docking_workflow(inputs: CrossDockingWorkflowInputs):
         dask_client=dask_client,
         failure_mode=inputs.failure_mode,
         return_df=True,
-        backend=BackendType.DISK,
+        backend=BackendType.IN_MEMORY,
         reconstruct_cls=docker.result_cls,
     )
 
     del results
 
-    scores_df.to_csv(data_intermediates / "docking_scores_raw.csv", index=False)
-
-    # rename columns for manifold
-    logger.info("Renaming columns for manifold")
-    result_df = rename_output_columns_for_manifold(
-        scores_df,
-        inputs.target,
-        [DockingResultCols],
-        manifold_validate=True,
-        drop_non_output=True,
-        allow=[DockingResultCols.LIGAND_ID.value],
-    )
-
-    result_df.to_csv(output_dir / "docking_results_final.csv", index=False)
+    scores_df.to_csv(output_dir / "docking_scores_raw.csv", index=False)
+    logger.info("Finished successfully!")

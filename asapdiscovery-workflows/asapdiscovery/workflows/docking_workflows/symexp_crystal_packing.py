@@ -29,7 +29,8 @@ from asapdiscovery.data.util.utils import check_empty_dataframe
 from asapdiscovery.docking.docking import write_results_to_multi_sdf
 from asapdiscovery.docking.docking_data_validation import DockingResultCols
 from asapdiscovery.docking.openeye import POSITDocker
-from asapdiscovery.docking.scorer import ChemGauss4Scorer, SymClashScorer
+from asapdiscovery.docking.scorer import ChemGauss4Scorer
+from asapdiscovery.workflows.scorers import SymClashScorer
 from asapdiscovery.modeling.protein_prep import ProteinPrepper
 from asapdiscovery.workflows.docking_workflows.workflows import (
     PosteraDockingWorkflowInputs,

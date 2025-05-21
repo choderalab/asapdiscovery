@@ -4,7 +4,6 @@ import click
 @click.group()
 def cli(help="Command-line interface for asapdiscovery"): ...
 
-
 from asapdiscovery.workflows.docking_workflows.cli import (  # noqa: F401, E402, F811
     docking,
 )

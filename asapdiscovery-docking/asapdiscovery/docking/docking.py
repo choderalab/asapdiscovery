@@ -361,11 +361,13 @@ def write_results_to_multi_sdf(
         raise ValueError("Must provide reconstruct_cls if using disk backend")
 
     for res in results:
-        if backend == BackendType.IN_MEMORY:
+        if backend == BackendType.DISK:
+            res = reconstruct_cls.from_json_file(res)
+        if backend in [BackendType.DISK, BackendType.IN_MEMORY]:
             lig = res.posed_ligand
-        elif backend == BackendType.DISK:
-            lig = reconstruct_cls.from_json_file(res).posed_ligand
         else:
             raise ValueError(f"Unknown backend type {backend}")
 
+        lig.set_SD_data({"ReferenceStructureName": res.input_pair.complex.target.target_name,
+                         "ReferenceLigandName": res.input_pair.complex.ligand.compound_name})
         lig.to_sdf(sdf_file, allow_append=True)
