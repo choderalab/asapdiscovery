@@ -110,4 +110,4 @@ def test_data(graph_dataset):
 
 @pytest.fixture()
 def remote_ensemble_manifest_url():
-    return "https://asap-discovery-ml-skynet.asapdata.org/test_manifest/asap_ensemble_models.yaml"
+    return "https://d1ibwnbvfa7iey.cloudfront.net/test_manifest/asap_ensemble_models.yaml"

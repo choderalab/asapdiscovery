@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 
 PROTOCOLS = yaml.safe_load(open(cdd_protocols_yaml))["protocols"]
 
-SKYNET_SERVE_URL = "https://asap-discovery-ml-skynet.asapdata.org"
+SKYNET_SERVE_URL = "https://d1ibwnbvfa7iey.cloudfront.net"
 
 
 def evaluate_test_performance(
@@ -601,7 +601,7 @@ def _write_ensemble_manifest_yaml(
 
     asapdiscovery-GAT-ensemble-test:
       type: GAT
-      base_url: https://asap-discovery-ml-skynet.asapdata.org/test_manifest/endpoint/
+      base_url: https://d1ibwnbvfa7iey.cloudfront.net/test_manifest/endpoint/
       ensemble: True
 
       weights:

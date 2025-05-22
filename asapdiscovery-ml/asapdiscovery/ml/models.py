@@ -342,7 +342,7 @@ class RemoteEnsembleHelper(BaseModel):
 
     asapdiscovery-GAT-ensemble-test:
     type: GAT
-    base_url: https://asap-discovery-ml-weights.asapdata.org/production/GAT/
+    base_url: https://d2slxrwfphomy2.cloudfront.net/production/GAT/
     ensemble: True
 
     weights:
