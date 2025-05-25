@@ -10,20 +10,22 @@ from asapdiscovery.data.backend.openeye import (
     split_openeye_mol,
 )
 from asapdiscovery.data.schema.identifiers import TargetIdentifiers
-from pydantic.v1 import Field, root_validator
+from pydantic import Field, model_validator
 
 from asapdiscovery.data.schema.schema_base import (
     DataModelAbstractBase,
     DataStorageType,
     check_strings_for_equality_with_exclusion,
     schema_dict_get_val_overload,
-    write_file_directly, MoleculeFilter,
+    write_file_directly,
+    MoleculeFilter,
 )
 
 logger = logging.getLogger(__name__)
 
 
-class InvalidTargetError(ValueError): ...  # noqa: E701
+class InvalidTargetError(ValueError):
+    ...  # noqa: E701
 
 
 class Target(DataModelAbstractBase):
@@ -49,7 +51,7 @@ class Target(DataModelAbstractBase):
         allow_mutation=False,
     )
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
     @classmethod
     def _validate_at_least_one_id(cls, v):
         # check if skip validation
@@ -125,5 +127,3 @@ class Target(DataModelAbstractBase):
         Get the crystal symmetry of the target
         """
         return oechem.OEGetCrystalSymmetry(self.to_oemol())
-
-

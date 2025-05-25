@@ -66,6 +66,26 @@ def test_docked_dataset_from_files(complex_pdb):
     assert pose["pos"].shape[0] > 0
 
 
+def test_docked_dataset_random_iter(complex_pdb):
+    all_complexes = [
+        Complex.from_pdb(
+            complex_pdb,
+            target_kwargs={"target_name": f"test{i}"},
+            ligand_kwargs={"compound_name": f"test{i}"},
+        )
+        for i in range(10)
+    ]
+
+    dd = DockedDataset.from_complexes(all_complexes, random_iter=True)
+
+    # Iterate through the list twice and make sure they're not the same (should pass
+    #  unless we get really really unlucky)
+    l1 = [compound for compound, _ in dd]
+    l2 = [compound for compound, _ in dd]
+
+    assert l1 != l2
+
+
 def test_grouped_docked_dataset_from_complexes(complex_pdb):
     c1 = Complex.from_pdb(
         complex_pdb,

@@ -37,7 +37,7 @@ from asapdiscovery.data.schema.identifiers import (
     LigandProvenance,
 )
 from asapdiscovery.data.schema.schema_base import DataStorageType
-from pydantic.v1 import Field, root_validator, validator
+from pydantic import Field, model_validator, field_validator
 
 from .experimental import ExperimentalCompoundData
 from .schema_base import (
@@ -53,7 +53,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class InvalidLigandError(ValueError): ...  # noqa: E701
+class InvalidLigandError(ValueError):
+    ...  # noqa: E701
 
 
 class ChemicalRelationship(Flag):
@@ -109,7 +110,7 @@ class Ligand(DataModelAbstractBase):
     provenance: LigandProvenance = Field(
         ...,
         description="Identifiers for the input state of the ligand used to ensure the sdf data is correct.",
-        allow_mutation=False,
+        frozen=True,
     )
     experimental_data: Optional[ExperimentalCompoundData] = Field(
         None,
@@ -145,18 +146,12 @@ class Ligand(DataModelAbstractBase):
         description="SDF file stored as a string to hold internal data state",
         repr=False,
     )
-    data_format: DataStorageType = Field(
-        DataStorageType.sdf,
-        description="Enum describing the data storage method",
-        const=True,
-        allow_mutation=False,
-    )
+    data_format: Literal[DataStorageType.sdf] = DataStorageType.sdf
 
-    @root_validator(pre=True)
-    @classmethod
-    def _validate_at_least_one_id(cls, v):
-        ids = v.get("ids")
-        compound_name = v.get("compound_name")
+    @model_validator(mode="before")
+    def _validate_at_least_one_id(cls, values):
+        ids = values.get("ids")
+        compound_name = values.get("compound_name")
         # check if all the identifiers are None, sometimes when this is called from
         # already instantiated ligand we need to be able to handle a dict and instantiated class
         if compound_name is None:
@@ -166,13 +161,13 @@ class Ligand(DataModelAbstractBase):
                 raise ValueError(
                     "At least one identifier must be provide, or compound_name must be provided"
                 )
-        return v
+        return values
 
-    @validator("tags")
+    @field_validator("tags")
     @classmethod
     def _validate_tags(cls, v):
         # check that tags are not reserved attribute names and format partial charges
-        reser_attr_names = cls.__fields__.keys()
+        reser_attr_names = cls.model_fields.keys()
         for k in v.keys():
             if k in reser_attr_names:
                 raise ValueError(f"Tag name {k} is a reserved attribute name")
@@ -221,7 +216,7 @@ class Ligand(DataModelAbstractBase):
 
         # extract all passed kwargs as a tag if it has no field in the model
         keys_to_save = [
-            key for key in kwargs.keys() if key not in cls.__fields__.keys()
+            key for key in kwargs.keys() if key not in cls.model_fields.keys()
         ]
 
         tags = set()
@@ -235,7 +230,7 @@ class Ligand(DataModelAbstractBase):
                         f"Tag {key} with value {value} is not hashable and will not be saved"
                     )
 
-        kwargs["tags"] = tags
+        kwargs["tags"] = dict(tags)
 
         # Do the same thing for the conformer tags, only keeping the ones in 'tags'
         conf_tags_list = []
@@ -243,7 +238,7 @@ class Ligand(DataModelAbstractBase):
             if key in keys_to_save:
                 conf_tags_list.append((key, value))
 
-        kwargs["conf_tags"] = conf_tags_list
+        kwargs["conf_tags"] = dict(conf_tags_list)
 
         # clean the sdf data for the internal model
         sdf_str = oemol_to_sdf_string(clear_SD_data(input_mol))
@@ -271,7 +266,7 @@ class Ligand(DataModelAbstractBase):
         """
         mol = sdf_string_to_oemol(self.data)
         data = {}
-        for key in self.__fields__.keys():
+        for key in self.model_fields.keys():
             if key not in ["data", "tags", "conf_tags", "data_format"]:
                 field = getattr(self, key)
                 try:
@@ -330,7 +325,7 @@ class Ligand(DataModelAbstractBase):
 
         # Filter out the keys that are a model attribute
         conf_tags = {
-            k: v for k, v in conf_tags.items() if k not in cls.__fields__.keys()
+            k: v for k, v in conf_tags.items() if k not in cls.model_fields.keys()
         }
 
         # create a new Ligand object with the data from the first conformer
@@ -354,7 +349,7 @@ class Ligand(DataModelAbstractBase):
 
         rdkit_mol: Chem.Mol = sdf_str_to_rdkit_mol(self.data)
         data = {}
-        for key in self.__fields__.keys():
+        for key in self.model_fields.keys():
             if key not in ["data", "tags", "data_format", "conf_tags"]:
                 field = getattr(self, key)
                 try:
@@ -553,7 +548,7 @@ class Ligand(DataModelAbstractBase):
         # and ensure that the length of the data matches the number of conformers
         new_data = {}
         for k, v in data.items():
-            if k in self.__fields__.keys():
+            if k in self.model_fields.keys():
                 warnings.warn(f"Tag name {k} is a reserved attribute name, skipping")
             else:
                 # if list is len 1, generate a list of len N, where N is the number of conformers

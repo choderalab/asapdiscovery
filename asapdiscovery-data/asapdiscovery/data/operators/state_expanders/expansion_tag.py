@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING, Any, Optional
 
 from asapdiscovery.data.schema.identifiers import LigandIdentifiers
-from pydantic.v1 import BaseModel, Field
+from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from asapdiscovery.data.schema.ligand import Ligand
@@ -31,8 +31,7 @@ class StateExpansionTag(BaseModel):
         description="Provenance of the software used during the expansion and the state expander.",
     )
 
-    class Config:
-        allow_mutation = False
+    model_config = {"frozen": True}
 
     def __hash__(self) -> int:
         return hash(self.json())

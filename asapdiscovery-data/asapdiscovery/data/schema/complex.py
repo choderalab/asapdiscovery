@@ -9,13 +9,13 @@ from asapdiscovery.data.backend.openeye import (
     load_openeye_pdb,
     oechem,
     save_openeye_pdb,
-    split_openeye_mol
+    split_openeye_mol,
 )
 from asapdiscovery.data.schema.ligand import Ligand
 from asapdiscovery.data.schema.schema_base import DataModelAbstractBase
 from asapdiscovery.data.schema.target import Target
 from asapdiscovery.data.schema.schema_base import MoleculeFilter
-from pydantic.v1 import Field
+from pydantic import Field
 
 logger = logging.getLogger(__name__)
 
@@ -115,5 +115,3 @@ class Complex(ComplexBase):
     @property
     def hash(self):
         return f"{self.target.hash}+{self.ligand.fixed_inchikey}"
-
-

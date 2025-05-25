@@ -4,19 +4,25 @@ from pathlib import Path
 from typing import Optional, Any, Union
 
 from openeye import oechem
-from pydantic.v1 import Field, root_validator
+from pydantic import Field, model_validator
 
 from asapdiscovery.data.schema.complex import ComplexBase, Complex
 from asapdiscovery.data.schema.ligand import Ligand
-from asapdiscovery.data.backend.openeye import (oedu_to_bytes64,
-                                                bytes64_to_oedu,
-                                                load_openeye_design_unit,
-                                                save_openeye_design_unit,
-                                                split_openeye_design_unit,
-                                                openeye_perceive_residues,
-                                                save_openeye_pdb)
+from asapdiscovery.data.backend.openeye import (
+    oedu_to_bytes64,
+    bytes64_to_oedu,
+    load_openeye_design_unit,
+    save_openeye_design_unit,
+    split_openeye_design_unit,
+    openeye_perceive_residues,
+    save_openeye_pdb,
+)
 from asapdiscovery.data.schema.identifiers import TargetIdentifiers
-from asapdiscovery.data.schema.schema_base import DataModelAbstractBase, DataStorageType, schema_dict_get_val_overload
+from asapdiscovery.data.schema.schema_base import (
+    DataModelAbstractBase,
+    DataStorageType,
+    schema_dict_get_val_overload,
+)
 
 
 class PreppedTarget(DataModelAbstractBase):
@@ -52,7 +58,7 @@ class PreppedTarget(DataModelAbstractBase):
         description="bounding box of the target, lost in oedu conversion so can be saved as attribute.",
     )
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
     @classmethod
     def _validate_at_least_one_id(cls, v):
         # simpler as we never need to pop attrs off the serialised representation.
@@ -104,6 +110,7 @@ class PreppedTarget(DataModelAbstractBase):
         import hashlib
 
         return hashlib.sha256(self.data).hexdigest()
+
 
 class PreppedComplex(ComplexBase):
     """
@@ -168,4 +175,3 @@ class PreppedComplex(ComplexBase):
     def hash(self):
         # Using the target_hash instead hashing the OEDU bytes because prepping is stochastic
         return f"{self.target.target_hash}+{self.ligand.fixed_inchikey}"
-

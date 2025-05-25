@@ -87,7 +87,7 @@ class Sweeper(Trainer):
         """
 
         # Clone self into a dict so we can update stuff
-        new_trainer_dict = self.dict()
+        new_trainer_dict = self.model_dump()
 
         # Decompose parameter names into nested dict
         config_update_dict = {}
@@ -147,14 +147,14 @@ class Sweeper(Trainer):
 
         # Update W&B config to include everything from all the Trainer configs
         # Don't serialize input_data for confidentiality/size reasons
-        ds_config = sweeper.ds_config.dict()
+        ds_config = sweeper.ds_config.model_dump()
         del ds_config["input_data"]
-        config = sweeper.dict()
+        config = sweeper.model_dump()
         config["ds_config"] = ds_config
         wandb.config.update(config)
 
         # Get Trainer config dict (before initialization so we don't have extra stuff)
-        trainer_config_dict = sweeper.dict()
+        trainer_config_dict = sweeper.model_dump()
         # Get rid of Sweeper-specific args
         del trainer_config_dict["sweep_config"]
         del trainer_config_dict["force_new_sweep"]

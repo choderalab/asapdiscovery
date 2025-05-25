@@ -1,10 +1,13 @@
 import numpy as np
 import pandas as pd
+import random
 import torch
 from asapdiscovery.data.backend.openeye import oechem
 from asapdiscovery.data.schema.complex import Complex
 from asapdiscovery.data.schema.ligand import Ligand
 from torch.utils.data import Dataset
+
+from dgllife.utils import CanonicalAtomFeaturizer, SMILESToBigraph
 
 
 class DockedDataset(Dataset):
@@ -13,7 +16,7 @@ class DockedDataset(Dataset):
     learning.
     """
 
-    def __init__(self, compounds={}, structures=[]):
+    def __init__(self, compounds={}, structures=[], random_iter=False):
         """
         Constructor for DockedDataset object.
 
@@ -26,14 +29,19 @@ class DockedDataset(Dataset):
             List of pose dicts, containing at minimum tensors for atomic number, atomic
             positions, and a ligand idx. Indices in this list should match the indices
             in the lists in compounds.
+        random_iter : bool, default=False
+            Iterate through the dataset randomly each time
         """
         super().__init__()
 
         self.compounds = compounds
         self.structures = structures
+        self.random_iter = random_iter
 
     @classmethod
-    def from_complexes(cls, complexes: list[Complex], exp_dict=None, ignore_h=True):
+    def from_complexes(
+        cls, complexes: list[Complex], exp_dict=None, ignore_h=True, random_iter=False
+    ):
         """
         Build from a list of Complex objects.
 
@@ -47,6 +55,8 @@ class DockedDataset(Dataset):
             a ligand witht that compound_id
         ignore_h : bool, default=True
             Whether to remove hydrogens from the loaded structure
+        random_iter : bool, default=False
+            Iterate through the dataset randomly each time
 
         Returns
         -------
@@ -60,7 +70,7 @@ class DockedDataset(Dataset):
         def get_complex_id(c):
             # First build target id from target_name and all identifiers
             target_name = c.target.target_name
-            target_ids = {k: v for k, v in c.target.ids.dict() if v}
+            target_ids = {k: v for k, v in c.target.ids.model_dump() if v}
             target_id = []
             if target_name:
                 target_id += [target_name]
@@ -69,7 +79,7 @@ class DockedDataset(Dataset):
 
             # Build ligand_id from compound_name and all identifiers
             compound_name = c.ligand.compound_name
-            compound_ids = {k: v for k, v in c.ligand.ids.dict() if v}
+            compound_ids = {k: v for k, v in c.ligand.ids.model_dump() if v}
             compound_id = []
             if compound_name:
                 compound_id += [compound_name]
@@ -89,21 +99,22 @@ class DockedDataset(Dataset):
                 comp_exp_dict = {}
             comp_exp_dict |= exp_dict.get(comp.ligand.compound_name, {})
 
-            # compound = get_complex_id(comp)
             compound = (comp.target.target_name, comp.ligand.compound_name)
+            pose = cls._complex_to_pose(
+                comp, compound=compound, exp_dict=comp_exp_dict, ignore_h=ignore_h
+            )
+            if pose is None:
+                continue
+            structures.append(pose)
+
             try:
                 compound_idxs[compound].append(comp_counter)
             except KeyError:
                 compound_idxs[compound] = [comp_counter]
 
-            pose = cls._complex_to_pose(
-                comp, compound=compound, exp_dict=comp_exp_dict, ignore_h=ignore_h
-            )
-            structures.append(pose)
-
             comp_counter += 1
 
-        return cls(compound_idxs, structures)
+        return cls(compound_idxs, structures, random_iter=random_iter)
 
     @staticmethod
     def _complex_to_pose(comp, compound=None, exp_dict=None, ignore_h=True):
@@ -176,6 +187,7 @@ class DockedDataset(Dataset):
         ignore_h=True,
         extra_dict=None,
         num_workers=1,
+        random_iter=False,
     ):
         """
         Parameters
@@ -193,6 +205,8 @@ class DockedDataset(Dataset):
             keys ["z", "pos", "lig", "compound"]
         num_workers : int, default=1
             Number of cores to use to load structures
+        random_iter : bool, default=False
+            Iterate through the dataset randomly each time
         """
         if extra_dict is None:
             extra_dict = {}
@@ -215,7 +229,12 @@ class DockedDataset(Dataset):
         else:
             all_complexes = [mp_func(*args) for args in mp_args]
 
-        return cls.from_complexes(all_complexes, exp_dict=extra_dict, ignore_h=ignore_h)
+        return cls.from_complexes(
+            all_complexes,
+            exp_dict=extra_dict,
+            ignore_h=ignore_h,
+            random_iter=random_iter,
+        )
 
     def __len__(self):
         return len(self.structures)
@@ -292,8 +311,57 @@ class DockedDataset(Dataset):
             return (compounds[0], str_list[0])
 
     def __iter__(self):
-        for s in self.structures:
-            yield (s["compound"], s)
+        if self.random_iter:
+            rand_idx = random.sample(range(len(self.structures)), len(self.structures))
+            for i in rand_idx:
+                s = self.structures[i]
+                yield (s["compound"], s)
+        else:
+            for s in self.structures:
+                yield (s["compound"], s)
+
+
+class SplitDockedDataset(DockedDataset):
+    """
+    Same layout as DockedDataset, but each entry is a dict that has entries for
+    "complex", "protein", and "ligand", which store the corresponding representations.
+    """
+
+    @staticmethod
+    def _complex_to_pose(comp, compound=None, exp_dict=None, ignore_h=True):
+        """
+        Helper function to convert a Complex to a pose.
+        """
+        # First use already written code to do the actual parsing
+        pose = DockedDataset._complex_to_pose(
+            comp=comp, compound=compound, exp_dict=exp_dict, ignore_h=ignore_h
+        )
+
+        # Get just the actual structural data
+        complex_pose = {k: pose.pop(k) for k in ["pos", "z", "lig", "x", "b"]}
+
+        # Extract the protein atoms
+        lig_idx = complex_pose["lig"]
+        prot_pose = {k: complex_pose[k][~lig_idx] for k in ["pos", "z", "x", "b"]}
+
+        # Convert ligand to a DGL graph
+        # Function for encoding SMILES to a graph
+        smiles_to_g = SMILESToBigraph(
+            add_self_loop=True,
+            node_featurizer=CanonicalAtomFeaturizer(),
+            edge_featurizer=None,
+        )
+        g = smiles_to_g(comp.ligand.smiles)
+        if g is None:
+            print(f"{compound} ligand couldn't be converted to graph", flush=True)
+            return None
+        lig_pose = {"g": g}
+
+        pose["complex"] = complex_pose
+        pose["protein"] = prot_pose
+        pose["ligand"] = lig_pose
+
+        return pose
 
 
 class GroupedDockedDataset(Dataset):
@@ -302,7 +370,12 @@ class GroupedDockedDataset(Dataset):
     for a given compound can be accessed at a time.
     """
 
-    def __init__(self, compound_ids: list[str] = [], structures: dict[str, dict] = {}):
+    def __init__(
+        self,
+        compound_ids: list[str] = [],
+        structures: dict[str, dict] = {},
+        random_iter=False,
+    ):
         """
         Constructor for GroupedDockedDataset object.
 
@@ -313,6 +386,8 @@ class GroupedDockedDataset(Dataset):
             entry in structures
         structures : dict[str, dict]
             Dict mapping compound_id to a pose dict
+        random_iter : bool, default=False
+            Iterate through the dataset randomly each time
         """
         import numpy as np
 
@@ -320,9 +395,12 @@ class GroupedDockedDataset(Dataset):
 
         self.compound_ids = np.asarray(compound_ids)
         self.structures = structures
+        self.random_iter = random_iter
 
     @classmethod
-    def from_complexes(cls, complexes: list[Complex], exp_dict={}, ignore_h=True):
+    def from_complexes(
+        cls, complexes: list[Complex], exp_dict={}, ignore_h=True, random_iter=False
+    ):
         """
         Build from a list of Complex objects.
 
@@ -336,6 +414,8 @@ class GroupedDockedDataset(Dataset):
             a ligand witht that compound_id
         ignore_h : bool, default=True
             Whether to remove hydrogens from the loaded structure
+        random_iter : bool, default=False
+            Iterate through the dataset randomly each time
 
         Returns
         -------
@@ -393,7 +473,9 @@ class GroupedDockedDataset(Dataset):
             # Normalize to probability, take inverse first so lower RMSDs are better
             data["rmsd_probs"] = (1 / pose_rmsds) / (1 / pose_rmsds).sum()
 
-        return cls(compound_ids=compound_ids, structures=structures)
+        return cls(
+            compound_ids=compound_ids, structures=structures, random_iter=random_iter
+        )
 
     @classmethod
     def from_files(
@@ -403,6 +485,7 @@ class GroupedDockedDataset(Dataset):
         ignore_h=True,
         extra_dict=None,
         num_workers=1,
+        random_iter=False,
     ):
         """
         Parameters
@@ -420,6 +503,8 @@ class GroupedDockedDataset(Dataset):
             keys ["z", "pos", "lig", "compound"]
         num_workers : int, default=1
             Number of cores to use to load structures
+        random_iter : bool, default=False
+            Iterate through the dataset randomly each time
         """
 
         if extra_dict is None:
@@ -443,7 +528,12 @@ class GroupedDockedDataset(Dataset):
         else:
             all_complexes = [mp_func(*args) for args in mp_args]
 
-        return cls.from_complexes(all_complexes, exp_dict=extra_dict, ignore_h=ignore_h)
+        return cls.from_complexes(
+            all_complexes,
+            exp_dict=extra_dict,
+            ignore_h=ignore_h,
+            random_iter=random_iter,
+        )
 
     def __len__(self):
         return len(self.compound_ids)
@@ -508,8 +598,16 @@ class GroupedDockedDataset(Dataset):
             return (compound_id_list[0], str_list[0])
 
     def __iter__(self):
-        for compound_id in self.compound_ids:
-            yield compound_id, self.structures[compound_id]
+        if self.random_iter:
+            rand_idx = random.sample(
+                range(len(self.compound_ids)), len(self.compound_ids)
+            )
+            for i in rand_idx:
+                compound_id = self.compound_ids[i]
+                yield compound_id, self.structures[compound_id]
+        else:
+            for compound_id in self.compound_ids:
+                yield compound_id, self.structures[compound_id]
 
 
 class GraphDataset(Dataset):
@@ -517,11 +615,12 @@ class GraphDataset(Dataset):
     Class for loading SMILES as graphs.
     """
 
-    def __init__(self, compounds={}, structures=[]):
+    def __init__(self, compounds={}, structures=[], random_iter=False):
         super().__init__()
 
         self.compounds = compounds
         self.structures = structures
+        self.random_iter = random_iter
 
     @classmethod
     def from_ligands(
@@ -530,6 +629,7 @@ class GraphDataset(Dataset):
         exp_dict: dict = {},
         node_featurizer=None,
         edge_featurizer=None,
+        random_iter=False,
     ):
         """
         Parameters
@@ -544,9 +644,9 @@ class GraphDataset(Dataset):
             Featurizer for node data
         edge_featurizer : BaseBondFeaturizer, optional
             Featurizer for edges
+        random_iter : bool, default=False
+            Iterate through the dataset randomly each time
         """
-
-        from dgllife.utils import SMILESToBigraph
 
         # Function for encoding SMILES to a graph
         smiles_to_g = SMILESToBigraph(
@@ -591,7 +691,7 @@ class GraphDataset(Dataset):
                 | lig_exp_dict
             )
 
-        return cls(compounds, structures)
+        return cls(compounds, structures, random_iter=random_iter)
 
     @classmethod
     def from_exp_compounds(
@@ -600,6 +700,7 @@ class GraphDataset(Dataset):
         exp_dict: dict = {},
         node_featurizer=None,
         edge_featurizer=None,
+        random_iter=False,
     ):
         """
         Parameters
@@ -614,11 +715,10 @@ class GraphDataset(Dataset):
             Featurizer for node data
         edge_featurizer : BaseBondFeaturizer, optional
             Featurizer for edges
-            Cache file for graph dataset
+        random_iter : bool, default=False
+            Iterate through the dataset randomly each time
 
         """
-        from dgllife.utils import SMILESToBigraph
-
         # Function for encoding SMILES to a graph
         smiles_to_g = SMILESToBigraph(
             add_self_loop=True,
@@ -661,7 +761,7 @@ class GraphDataset(Dataset):
                 | {"date_created": exp_compound.date_created}
             )
 
-        return cls(compounds, structures)
+        return cls(compounds, structures, random_iter=random_iter)
 
     def __len__(self):
         return len(self.structures)
@@ -742,8 +842,14 @@ class GraphDataset(Dataset):
             return (compounds[0], str_list[0])
 
     def __iter__(self):
-        for s in self.structures:
-            yield (s["compound"], s)
+        if self.random_iter:
+            rand_idx = random.sample(range(len(self.structures)), len(self.structures))
+            for i in rand_idx:
+                s = self.structures[i]
+                yield (s["compound"], s)
+        else:
+            for s in self.structures:
+                yield (s["compound"], s)
 
 
 def dataset_to_dataframe(dataset):

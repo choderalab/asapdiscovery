@@ -1,16 +1,16 @@
 from datetime import date
 from typing import Any
 
-from pydantic.v1 import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ExperimentalCompoundData(BaseModel):
-    compound_id: str = Field(
+    compound_id: str | None = Field(
         None,
         description="The unique compound identifier (PostEra or enumerated ID)",
     )
 
-    smiles: str = Field(
+    smiles: str | None = Field(
         None,
         description="OpenEye canonical isomeric SMILES string defining suspected SMILES of racemic mixture (with unspecified stereochemistry) or specific enantiopure compound (if racemic=False); may differ from what is registered under compound_id.",
     )
@@ -35,12 +35,24 @@ class ExperimentalCompoundData(BaseModel):
         description="If True, the compound was enantiopure, but unknown if stereochemistry recorded in SMILES is correct",
     )
 
-    date_created: date = Field(None, description="Date the molecule was created.")
+    date_created: date | None = Field(
+        None, description="Date the molecule was created."
+    )
 
     experimental_data: dict[str, float | Any] = Field(
         dict(),
         description='Experimental data fields, including "pIC50" and uncertainty (either "pIC50_stderr" or  "pIC50_{lower|upper}"',
     )
+
+    @field_validator("date_created", mode="before")
+    def check_date(cls, value):
+        # If a date is specified as just the year, it'll be loaded as an int and we need
+        #  to format it into ISO format. Set for last day of the year so it gets sorted
+        #  at the end
+        if isinstance(value, int):
+            value = f"{value}-12-31"
+
+        return value
 
     def to_SD_tags(self) -> tuple[dict[str, str], dict[str, float]]:
         """
@@ -53,6 +65,4 @@ class ExperimentalCompoundData(BaseModel):
         exp_data = {str(k): float(v) for k, v in exp_data.items() if v is not None}
         return data, exp_data
 
-    class Config:
-        allow_mutation = False
-        extra = "forbid"
+    model_config = {"frozen": True, "extra": "forbid"}

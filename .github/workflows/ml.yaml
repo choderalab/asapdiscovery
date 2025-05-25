@@ -73,11 +73,11 @@ jobs:
 
     - name: Install packages
       run: |
-        micromamba install -n ml-cli --file devtools/conda-envs/${{ matrix.os }}/data.yaml
-        micromamba install -n ml-cli --file devtools/conda-envs/${{ matrix.os }}/docking.yaml
-        micromamba install -n ml-cli --file devtools/conda-envs/${{ matrix.os }}/modeling.yaml
-        micromamba install -n ml-cli --file devtools/conda-envs/${{ matrix.os }}/alchemy.yaml
-        micromamba install -n ml-cli --file devtools/conda-envs/${{ matrix.os }}/cli.yaml
+        micromamba install -n asapdiscovery --file devtools/conda-envs/${{ matrix.os }}/data.yaml
+        micromamba install -n asapdiscovery --file devtools/conda-envs/${{ matrix.os }}/docking.yaml
+        micromamba install -n asapdiscovery --file devtools/conda-envs/${{ matrix.os }}/modeling.yaml
+        micromamba install -n asapdiscovery --file devtools/conda-envs/${{ matrix.os }}/alchemy.yaml
+        micromamba install -n asapdiscovery --file devtools/conda-envs/${{ matrix.os }}/cli.yaml
         python -m pip install -e ./asapdiscovery-data --no-deps
         python -m pip install -e ./asapdiscovery-docking --no-deps
         python -m pip install -e ./asapdiscovery-ml --no-deps
